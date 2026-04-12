@@ -86,6 +86,8 @@ export const api = {
   getSettings: () => request<Settings>("/api/settings"),
   validateSmtp: () => request<{ ok: boolean; message: string }>("/api/settings/validate-smtp", { method: "POST" }),
   validateKeys: () => request<Record<string, { ok: boolean }>>("/api/settings/validate-keys", { method: "POST" }),
+  updateSettings: (data: { smtp_user?: string; smtp_pass?: string; sender_name?: string; sender_email?: string }) =>
+    request<{ ok: boolean }>("/api/settings", { method: "PATCH", body: JSON.stringify(data) }),
 
   // Health
   health: () => request<{ status: string }>("/api/health"),

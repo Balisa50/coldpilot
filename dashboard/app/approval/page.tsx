@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "../lib/api";
 import type { Email } from "../lib/types";
 
@@ -28,9 +29,7 @@ export default function ApprovalQueuePage() {
     try {
       await api.approveEmail(id);
       setEmails((prev) => prev.filter((e) => e.id !== id));
-    } catch {
-      // ignore
-    }
+    } catch {}
     setActing(null);
   }
 
@@ -39,9 +38,7 @@ export default function ApprovalQueuePage() {
     try {
       await api.rejectEmail(id);
       setEmails((prev) => prev.filter((e) => e.id !== id));
-    } catch {
-      // ignore
-    }
+    } catch {}
     setActing(null);
   }
 
@@ -50,14 +47,16 @@ export default function ApprovalQueuePage() {
     try {
       await api.rewriteEmail(id);
       await load();
-    } catch {
-      // ignore
-    }
+    } catch {}
     setActing(null);
   }
 
   if (loading) {
-    return <p className="text-text-muted">Loading...</p>;
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <div className="w-8 h-8 border-3 border-border border-t-accent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
@@ -65,8 +64,22 @@ export default function ApprovalQueuePage() {
       <h1 className="text-2xl font-bold mb-6">Approval Queue</h1>
 
       {emails.length === 0 ? (
-        <div className="bg-surface rounded-xl border border-border p-8 text-center">
-          <p className="text-text-muted">No emails pending approval</p>
+        <div className="bg-surface rounded-xl border border-border p-10 text-center">
+          <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="font-medium mb-2">No emails waiting for approval</p>
+          <p className="text-sm text-text-muted mb-5 max-w-sm mx-auto">
+            Your campaigns will generate emails here once running. In Copilot mode, every email needs your approval before sending.
+          </p>
+          <Link
+            href="/campaigns/new"
+            className="inline-flex bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 rounded-lg transition-colors"
+          >
+            Create a Campaign
+          </Link>
         </div>
       ) : (
         <div className="space-y-4">

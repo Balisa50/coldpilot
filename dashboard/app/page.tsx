@@ -1,20 +1,39 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "./lib/api";
 import type { Stats, Campaign } from "./lib/types";
+import WakeUp from "./components/WakeUp";
 
-export const dynamic = "force-dynamic";
+export default function DashboardPage() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [ready, setReady] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-export default async function DashboardPage() {
-  let stats: Stats | null = null;
-  let campaigns: Campaign[] = [];
+  const loadData = useCallback(async () => {
+    try {
+      const [s, c] = await Promise.all([api.getStats(), api.listCampaigns()]);
+      setStats(s);
+      setCampaigns(c);
+      setReady(true);
+      setLoaded(true);
+    } catch {
+      setReady(false);
+    }
+  }, []);
 
-  try {
-    [stats, campaigns] = await Promise.all([
-      api.getStats(),
-      api.listCampaigns(),
-    ]);
-  } catch {
-    // backend offline
+  // Try loading immediately
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleReady = useCallback(() => {
+    setReady(true);
+    loadData();
+  }, [loadData]);
+
+  if (!ready && !loaded) {
+    return <WakeUp brandName="ColdPilot" accentPart="Pilot" onReady={handleReady} />;
   }
 
   const active = campaigns.filter((c) => c.status === "active");
@@ -23,14 +42,7 @@ export default async function DashboardPage() {
     <>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
-      {!stats ? (
-        <div className="bg-surface rounded-xl border border-border p-8 text-center">
-          <p className="text-xl font-bold mb-2">Backend Offline</p>
-          <p className="text-text-muted text-sm">
-            The ColdPilot server isn&apos;t responding. Please wait a moment and refresh — free instances take up to 50 seconds to wake up.
-          </p>
-        </div>
-      ) : (
+      {stats && (
         <>
           {/* Stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -48,7 +60,7 @@ export default async function DashboardPage() {
             />
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid gap-6">
             {/* Active campaigns */}
             <section className="bg-surface rounded-xl border border-border p-5">
               <div className="flex items-center justify-between mb-4">
@@ -85,20 +97,6 @@ export default async function DashboardPage() {
               )}
             </section>
 
-            {/* Quick stats */}
-            <section className="bg-surface rounded-xl border border-border p-5">
-              <h2 className="font-semibold mb-4">Overview</h2>
-              <dl className="space-y-3 text-sm">
-                <Row label="Active Campaigns" value={stats.active_campaigns} />
-                <Row label="Total Sent" value={stats.total_sent} />
-                <Row label="Total Replied" value={stats.total_replied} />
-                <Row label="Total Bounced" value={stats.total_bounced} />
-                <Row
-                  label="Bounce Rate"
-                  value={`${(stats.bounce_rate * 100).toFixed(1)}%`}
-                />
-              </dl>
-            </section>
           </div>
         </>
       )}
@@ -125,11 +123,3 @@ function StatCard({
   );
 }
 
-function Row({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="flex justify-between">
-      <dt className="text-text-secondary">{label}</dt>
-      <dd className="font-medium">{value}</dd>
-    </div>
-  );
-}

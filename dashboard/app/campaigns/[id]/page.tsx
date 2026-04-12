@@ -28,8 +28,9 @@ export default async function CampaignDetailPage({
     ]);
   } catch {
     return (
-      <div className="bg-surface rounded-xl border border-border p-8 text-center">
-        <p className="text-text-muted">Campaign not found or backend offline</p>
+      <div className="bg-surface rounded-xl border border-border p-10 text-center">
+        <p className="font-medium mb-2">Campaign not found</p>
+        <p className="text-sm text-text-muted">This campaign may have been deleted, or the page is still loading. Try refreshing.</p>
       </div>
     );
   }

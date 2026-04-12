@@ -1,14 +1,28 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "../lib/api";
 import type { ActionLog } from "../lib/types";
 
-export const dynamic = "force-dynamic";
+export default function ActivityPage() {
+  const [logs, setLogs] = useState<ActionLog[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function ActivityPage() {
-  let logs: ActionLog[] = [];
-  try {
-    logs = await api.listActivity(200);
-  } catch {
-    // offline
+  useEffect(() => {
+    api
+      .listActivity(200)
+      .then(setLogs)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <div className="w-8 h-8 border-3 border-border border-t-accent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
@@ -16,8 +30,22 @@ export default async function ActivityPage() {
       <h1 className="text-2xl font-bold mb-6">Activity Log</h1>
 
       {logs.length === 0 ? (
-        <div className="bg-surface rounded-xl border border-border p-8 text-center">
-          <p className="text-text-muted">No activity yet</p>
+        <div className="bg-surface rounded-xl border border-border p-10 text-center">
+          <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="font-medium mb-2">No activity yet</p>
+          <p className="text-sm text-text-muted mb-5 max-w-sm mx-auto">
+            Every action the agent takes will be logged here in real time once a campaign is running — emails sent, prospects found, replies received.
+          </p>
+          <Link
+            href="/campaigns/new"
+            className="inline-flex bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 rounded-lg transition-colors"
+          >
+            Create a Campaign
+          </Link>
         </div>
       ) : (
         <div className="bg-surface rounded-xl border border-border divide-y divide-border">

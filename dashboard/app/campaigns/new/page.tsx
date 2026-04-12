@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../../lib/api";
 import type {
@@ -29,9 +29,28 @@ export default function NewCampaignPage() {
   const [icpKeywords, setIcpKeywords] = useState("");
 
   // Seeker fields
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvText, setCvText] = useState("");
+  const [cvUploading, setCvUploading] = useState(false);
   const [desiredRole, setDesiredRole] = useState("");
   const [targetCompanies, setTargetCompanies] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleCvUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCvFile(file);
+    setCvUploading(true);
+
+    // Read PDF text client-side for preview
+    try {
+      const text = await file.text();
+      setCvText(text.slice(0, 3000));
+    } catch {
+      setCvText("[CV uploaded — will be parsed on submit]");
+    }
+    setCvUploading(false);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -106,13 +125,16 @@ export default function NewCampaignPage() {
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
-                className={`flex-1 py-2 rounded-lg text-sm capitalize border transition-colors ${
+                className={`flex-1 py-3 rounded-lg text-sm border transition-colors ${
                   mode === m
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-border text-text-secondary hover:border-text-muted"
                 }`}
               >
-                {m === "hunter" ? "Hunter — Business Outreach" : "Seeker — Job Hunting"}
+                <span className="font-medium">{m === "hunter" ? "Hunter" : "Seeker"}</span>
+                <span className="block text-xs mt-0.5 opacity-70">
+                  {m === "hunter" ? "Business Outreach" : "Job Hunting"}
+                </span>
               </button>
             ))}
           </div>
@@ -123,7 +145,7 @@ export default function NewCampaignPage() {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Q2 SaaS outreach"
+            placeholder={mode === "hunter" ? "Q2 SaaS outreach" : "Software engineer roles"}
             required
             className="input"
           />
@@ -175,6 +197,7 @@ export default function NewCampaignPage() {
               <input
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Acme Inc."
                 required
                 className="input"
               />
@@ -192,6 +215,7 @@ export default function NewCampaignPage() {
                 value={companyDesc}
                 onChange={(e) => setCompanyDesc(e.target.value)}
                 rows={3}
+                placeholder="What does your company do? Who do you serve?"
                 className="input"
               />
             </Field>
@@ -238,35 +262,64 @@ export default function NewCampaignPage() {
         {/* Seeker fields */}
         {mode === "seeker" && (
           <div className="space-y-4 border-t border-border pt-4">
-            <p className="text-xs text-text-muted uppercase tracking-wider">
-              Your Profile
-            </p>
-            <Field label="CV / Resume" required>
-              <textarea
-                value={cvText}
-                onChange={(e) => setCvText(e.target.value)}
-                rows={6}
-                placeholder="Paste your CV text here..."
+            <div className="bg-accent/5 border border-accent/20 rounded-lg p-4">
+              <p className="text-sm text-text-secondary">
+                ColdPilot will find the right person to contact at each company, research what they are working on right now, and write a personalised email that connects your background directly to their current situation.
+              </p>
+            </div>
+
+            <Field label="Upload your CV" required>
+              <div
+                onClick={() => fileRef.current?.click()}
+                className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-accent/50 transition-colors"
+              >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt"
+                  onChange={handleCvUpload}
+                  className="hidden"
+                />
+                {cvUploading ? (
+                  <p className="text-sm text-accent animate-pulse">Reading your CV...</p>
+                ) : cvFile ? (
+                  <div>
+                    <p className="text-sm text-accent font-medium">{cvFile.name}</p>
+                    <p className="text-xs text-text-muted mt-1">Click to replace</p>
+                  </div>
+                ) : (
+                  <div>
+                    <svg className="w-8 h-8 text-text-muted mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-sm text-text-muted">Drop your CV here or click to browse</p>
+                    <p className="text-xs text-text-muted mt-1">PDF, DOC, or TXT</p>
+                  </div>
+                )}
+              </div>
+            </Field>
+
+            <Field label="Desired Role" required>
+              <input
+                value={desiredRole}
+                onChange={(e) => setDesiredRole(e.target.value)}
+                placeholder="e.g. Software Engineer, Data Analyst, Product Manager"
                 required
                 className="input"
               />
             </Field>
-            <Field label="Desired Role">
-              <input
-                value={desiredRole}
-                onChange={(e) => setDesiredRole(e.target.value)}
-                placeholder="Senior Frontend Engineer"
-                className="input"
-              />
-            </Field>
-            <Field label="Target Companies (one per line: name, domain)">
+
+            <Field label="Target Companies (one per line, up to 20)">
               <textarea
                 value={targetCompanies}
                 onChange={(e) => setTargetCompanies(e.target.value)}
-                rows={4}
-                placeholder={"Stripe, stripe.com\nVercel, vercel.com\nLinear, linear.app"}
+                rows={6}
+                placeholder={"Stripe\nVercel\nLinear\nNotion\nFigma"}
                 className="input"
               />
+              <p className="text-xs text-text-muted mt-1">
+                {targetCompanies.split("\n").filter((l) => l.trim()).length}/20 companies
+              </p>
             </Field>
           </div>
         )}
