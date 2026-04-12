@@ -1,0 +1,152 @@
+"""
+APScheduler setup. Three jobs:
+
+1. check_followups  — every hour: process due follow-ups
+2. send_approved    — every 60s: send emails approved by copilot users
+3. reset_daily      — midnight: set today's warm-up limit
+"""
+from __future__ import annotations
+
+import asyncio
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
+
+from backend import db
+from backend.pipeline import email_writer, sender, followup
+from backend.scheduler.warmup import update_daily_limit
+
+
+scheduler = AsyncIOScheduler()
+
+
+async def check_followups() -> None:
+    """Process all due follow-ups."""
+    due = await db.get_due_followups()
+
+    for fu in due:
+        prospect = await db.get_prospect(fu["prospect_id"])
+        if not prospect or not followup.should_followup(prospect):
+            await db.update_followup(fu["id"], "cancelled")
+            continue
+
+        if not await sender.can_send():
+            break  # Hit daily limit — rest will be picked up next hour
+
+        # Find the original email
+        campaign_emails = await db.list_emails(fu["campaign_id"])
+        original = None
+        for e in campaign_emails:
+            if e["prospect_id"] == fu["prospect_id"] and e["email_type"] == "initial":
+                original = e
+                break
+
+        if not original:
+            await db.update_followup(fu["id"], "cancelled")
+            continue
+
+        # Generate follow-up email
+        fu_data = await email_writer.write_followup_email(
+            original, prospect, fu["followup_number"]
+        )
+        if not fu_data:
+            await db.update_followup(fu["id"], "cancelled")
+            continue
+
+        # Create the follow-up email record
+        email_type = f"followup_{fu['followup_number']}"
+        email_record = await db.create_email({
+            "prospect_id": prospect["id"],
+            "campaign_id": fu["campaign_id"],
+            "email_type": email_type,
+            "subject": fu_data["subject"],
+            "body_html": fu_data["body_html"],
+            "body_text": fu_data["body_text"],
+            "personalisation_points": fu_data["personalisation_points"],
+            "status": "approved",
+        })
+
+        # Check campaign autonomy
+        campaign = await db.get_campaign(fu["campaign_id"])
+        if campaign and campaign["autonomy"] == "copilot":
+            await db.update_email(email_record["id"], {"status": "pending_approval"})
+            await db.log_action("followup_pending_approval", fu["campaign_id"],
+                                prospect["id"], email_record["id"])
+            await db.update_followup(fu["id"], "sent")  # Mark schedule as processed
+            continue
+
+        # Send if not dry run
+        if campaign and not campaign.get("dry_run"):
+            result = await sender.send_email(email_record, prospect)
+            if result["success"] and fu["followup_number"] < 2:
+                # Schedule next follow-up
+                await followup.schedule_followup(
+                    email_record["id"], prospect["id"],
+                    fu["campaign_id"], followup_number=fu["followup_number"] + 1,
+                )
+                await sender.spacing_delay()
+
+        await db.update_followup(fu["id"], "sent")
+
+
+async def send_approved_emails() -> None:
+    """Send emails that have been approved by copilot users."""
+    approved = await db.list_emails_by_status("approved")
+
+    for email_record in approved:
+        if not await sender.can_send():
+            break
+
+        prospect = await db.get_prospect(email_record["prospect_id"])
+        if not prospect:
+            continue
+
+        campaign = await db.get_campaign(email_record["campaign_id"])
+        if campaign and campaign.get("dry_run"):
+            await db.log_action("dry_run_skip_send", email_record["campaign_id"],
+                                prospect["id"], email_record["id"])
+            continue
+
+        result = await sender.send_email(email_record, prospect)
+        if result["success"] and email_record["email_type"] == "initial":
+            await followup.schedule_followup(
+                email_record["id"], prospect["id"],
+                email_record["campaign_id"], followup_number=1,
+            )
+
+        await sender.spacing_delay()
+
+
+async def reset_daily_counter() -> None:
+    """Reset the daily send counter and calculate today's warm-up limit."""
+    limit = await update_daily_limit()
+    await db.log_action("daily_limit_set", detail={"limit": limit})
+
+
+def start_scheduler() -> None:
+    """Register all jobs and start the scheduler."""
+    scheduler.add_job(
+        check_followups,
+        IntervalTrigger(hours=1),
+        id="check_followups",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        send_approved_emails,
+        IntervalTrigger(seconds=60),
+        id="send_approved",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        reset_daily_counter,
+        CronTrigger(hour=0, minute=0),
+        id="reset_daily",
+        replace_existing=True,
+    )
+    scheduler.start()
+
+
+def stop_scheduler() -> None:
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
