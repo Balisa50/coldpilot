@@ -25,9 +25,9 @@ export default async function DashboardPage() {
 
       {!stats ? (
         <div className="bg-surface rounded-xl border border-border p-8 text-center">
-          <p className="text-text-muted">
-            Backend offline — start the server with{" "}
-            <code className="text-accent">uvicorn backend.main:app</code>
+          <p className="text-xl font-bold mb-2">Backend Offline</p>
+          <p className="text-text-muted text-sm">
+            The ColdPilot server isn&apos;t responding. Please wait a moment and refresh — free instances take up to 50 seconds to wake up.
           </p>
         </div>
       ) : (
