@@ -38,7 +38,7 @@ app = FastAPI(
 dashboard_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[dashboard_url, "http://localhost:3000"],
+    allow_origins=[dashboard_url, "http://localhost:3000", "https://coldpilot-dashboard.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
