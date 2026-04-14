@@ -1,15 +1,32 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// In production browser, use proxy route to avoid DNS issues
+// /api/health → /api/proxy/health (Vercel serverless → Render backend)
+const IS_BROWSER = typeof window !== "undefined";
+const USE_PROXY = IS_BROWSER && !process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${res.status}: ${body}`);
+async function request<T>(path: string, options?: RequestInit, retries = 2): Promise<T> {
+  const url = USE_PROXY ? path.replace(/^\/api\//, "/api/proxy/") : `${API_BASE}${path}`;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json", ...options?.headers },
+        ...options,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`${res.status}: ${body}`);
+      }
+      return res.json();
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      throw err;
+    }
   }
-  return res.json();
+  throw new Error("Server unreachable");
 }
 
 // ─── Campaigns ──────────────────────────────────────────
@@ -103,5 +120,7 @@ export const api = {
 
   // SSE stream URL (not a fetch — used with EventSource)
   streamUrl: (campaignId: string) =>
-    `${API_BASE}/api/campaigns/${campaignId}/stream`,
+    USE_PROXY
+      ? `/api/proxy/campaigns/${campaignId}/stream`
+      : `${API_BASE}/api/campaigns/${campaignId}/stream`,
 };

@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Use proxy in production to avoid DNS issues
+const IS_BROWSER = typeof window !== "undefined";
+const USE_PROXY = IS_BROWSER && !process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_WAIT = 60_000;
 const RETRY_INTERVAL = 5_000;
 
@@ -18,7 +21,8 @@ export default function WakeUp({ brandName, accentPart, onReady }: Props) {
 
   const ping = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
+      const healthUrl = USE_PROXY ? "/api/proxy/health" : `${API_BASE}/api/health`;
+      const res = await fetch(healthUrl, { cache: "no-store" });
       if (res.ok) {
         onReady();
         return true;
