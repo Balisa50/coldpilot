@@ -52,7 +52,16 @@ export const api = {
   // Prospects
   listProspects: (campaignId: string) =>
     request<Prospect[]>(`/api/campaigns/${campaignId}/prospects`),
-  createProspect: (campaignId: string, data: { company_name: string; company_domain?: string }) =>
+  createProspect: (
+    campaignId: string,
+    data: {
+      company_name: string;
+      company_domain?: string;
+      contact_name?: string;
+      contact_email?: string;
+      contact_role?: string;
+    },
+  ) =>
     request<Prospect>(`/api/campaigns/${campaignId}/prospects`, {
       method: "POST",
       body: JSON.stringify(data),

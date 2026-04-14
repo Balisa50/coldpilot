@@ -34,6 +34,9 @@ class CampaignCreate(BaseModel):
 class TargetCompany(BaseModel):
     company_name: str
     company_domain: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_role: str | None = None
 
 
 # Fix forward reference

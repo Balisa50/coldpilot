@@ -91,10 +91,15 @@ export default function NewCampaignPage() {
           .map((line) => line.trim())
           .filter(Boolean)
           .map((line): TargetCompany => {
-            const [company_name, company_domain] = line
-              .split(",")
-              .map((s) => s.trim());
-            return { company_name, company_domain: company_domain || undefined };
+            const parts = line.split(",").map((s) => s.trim());
+            const [company_name, company_domain, contact_name, contact_email, contact_role] = parts;
+            return {
+              company_name,
+              company_domain: company_domain || undefined,
+              contact_name: contact_name || undefined,
+              contact_email: contact_email || undefined,
+              contact_role: contact_role || undefined,
+            };
           });
       }
     }
@@ -313,12 +318,17 @@ export default function NewCampaignPage() {
               <textarea
                 value={targetCompanies}
                 onChange={(e) => setTargetCompanies(e.target.value)}
-                rows={6}
-                placeholder={"Stripe\nVercel\nLinear\nNotion\nFigma"}
-                className="input"
+                rows={8}
+                placeholder={`Google, google.com, John Doe, john@google.com, Recruiter
+Microsoft, microsoft.com, Jane Smith, jane@microsoft.com, HR
+Stripe, stripe.com
+Vercel
+Linear, linear.app, , hiring@linear.app`}
+                className="input font-mono text-xs"
               />
               <p className="text-xs text-text-muted mt-1">
-                {targetCompanies.split("\n").filter((l) => l.trim()).length}/20 companies
+                Format: <code className="bg-bg px-1 rounded">Company, domain, Contact Name, email, role</code> — only Company is required.
+                {" "}{targetCompanies.split("\n").filter((l) => l.trim()).length}/20 companies
               </p>
             </Field>
           </div>

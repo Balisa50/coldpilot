@@ -32,35 +32,48 @@ async def process_prospect(
 
     async with semaphore:
         try:
-            # Stage 1: Contact Finding
-            await db.update_prospect(pid, {"status": "researching"})
-            await _publish(cid, "stage_start", {"prospect_id": pid, "stage": "contact_finding"})
+            # Stage 1: Contact Finding — SKIP if prospect already has email (manual entry)
+            if prospect.get("contact_email"):
+                # User already provided contact info — skip straight to research
+                await db.update_prospect(pid, {"status": "contact_found"})
+                await db.log_action("contact_provided", cid, pid,
+                                    detail={"email": prospect["contact_email"],
+                                            "source": "manual"})
+                await _publish(cid, "contact_found", {
+                    "prospect_id": pid,
+                    "email": prospect["contact_email"],
+                    "name": prospect.get("contact_name", ""),
+                    "source": "manual",
+                })
+            else:
+                await db.update_prospect(pid, {"status": "researching"})
+                await _publish(cid, "stage_start", {"prospect_id": pid, "stage": "contact_finding"})
 
-            contact = await contact_finder.find_contact(prospect, campaign)
+                contact = await contact_finder.find_contact(prospect, campaign)
 
-            if not contact or not contact.get("contact_email"):
-                await db.update_prospect(pid, {"status": "failed"})
-                await db.log_action("contact_not_found", cid, pid,
-                                    detail={"company": prospect["company_name"]})
-                await _publish(cid, "contact_not_found", {"prospect_id": pid})
-                return
+                if not contact or not contact.get("contact_email"):
+                    await db.update_prospect(pid, {"status": "failed"})
+                    await db.log_action("contact_not_found", cid, pid,
+                                        detail={"company": prospect["company_name"]})
+                    await _publish(cid, "contact_not_found", {"prospect_id": pid})
+                    return
 
-            await db.update_prospect(pid, {
-                "contact_name": contact.get("contact_name", prospect.get("contact_name")),
-                "contact_email": contact["contact_email"],
-                "contact_role": contact.get("contact_role", ""),
-                "email_source": contact.get("email_source", "hunter"),
-                "email_verified": contact.get("email_verified", 0),
-                "status": "contact_found",
-            })
-            await db.log_action("contact_found", cid, pid,
-                                detail={"email": contact["contact_email"],
-                                        "source": contact.get("email_source")})
-            await _publish(cid, "contact_found", {
-                "prospect_id": pid,
-                "email": contact["contact_email"],
-                "name": contact.get("contact_name", ""),
-            })
+                await db.update_prospect(pid, {
+                    "contact_name": contact.get("contact_name", prospect.get("contact_name")),
+                    "contact_email": contact["contact_email"],
+                    "contact_role": contact.get("contact_role", ""),
+                    "email_source": contact.get("email_source", "hunter"),
+                    "email_verified": contact.get("email_verified", 0),
+                    "status": "contact_found",
+                })
+                await db.log_action("contact_found", cid, pid,
+                                    detail={"email": contact["contact_email"],
+                                            "source": contact.get("email_source")})
+                await _publish(cid, "contact_found", {
+                    "prospect_id": pid,
+                    "email": contact["contact_email"],
+                    "name": contact.get("contact_name", ""),
+                })
 
             # Refresh prospect after update
             prospect = await db.get_prospect(pid)
@@ -188,7 +201,8 @@ async def run_campaign(campaign_id: str) -> None:
     await _publish(campaign_id, "campaign_started", {"campaign_id": campaign_id})
 
     prospects = await db.list_prospects(campaign_id)
-    pending = [p for p in prospects if p["status"] == "pending"]
+    # Include both "pending" and "contact_found" (manually added with email)
+    pending = [p for p in prospects if p["status"] in ("pending", "contact_found")]
 
     if not pending:
         await db.log_action("campaign_no_prospects", campaign_id)

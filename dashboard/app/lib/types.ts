@@ -35,6 +35,9 @@ export interface Campaign {
 export interface TargetCompany {
   company_name: string;
   company_domain?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_role?: string;
 }
 
 export interface CampaignCreatePayload {

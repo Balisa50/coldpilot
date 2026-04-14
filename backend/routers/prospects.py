@@ -26,6 +26,10 @@ async def get_prospect(campaign_id: str, prospect_id: str):
 async def create_prospect(campaign_id: str, body: ProspectCreate):
     data = body.model_dump()
     data["campaign_id"] = campaign_id
+    # If user provided contact email, mark as manually sourced and skip contact-finding
+    if data.get("contact_email"):
+        data["email_source"] = "manual"
+        data["status"] = "contact_found"
     return await db.create_prospect(data)
 
 
