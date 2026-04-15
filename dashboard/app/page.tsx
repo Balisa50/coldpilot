@@ -59,8 +59,47 @@ export default function NewCampaignPage() {
   const [pendingEmail, setPendingEmail] = useState<Email | null>(null);
   const [editingBody, setEditingBody] = useState("");
   const [approving, setApproving] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const feedIdRef = useRef(0);
+
+  // ── Rehydrate on mount from sessionStorage ──
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("coldpilot_campaign");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.campaignId && saved.launched) {
+          setCampaignId(saved.campaignId);
+          setLaunched(saved.launched);
+          setStreamDone(saved.streamDone || false);
+          setFeed(saved.feed || []);
+          feedIdRef.current = (saved.feed || []).length;
+          setAutonomy(saved.autonomy || "copilot");
+        }
+      }
+    } catch {}
+    setHydrated(true);
+  }, []);
+
+  // ── Persist campaign state to sessionStorage ──
+  useEffect(() => {
+    if (!hydrated) return;
+    if (launched && campaignId) {
+      try {
+        sessionStorage.setItem(
+          "coldpilot_campaign",
+          JSON.stringify({
+            campaignId,
+            launched,
+            streamDone,
+            feed: feed.slice(-200), // cap size
+            autonomy,
+          })
+        );
+      } catch {}
+    }
+  }, [hydrated, launched, campaignId, streamDone, feed, autonomy]);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -108,6 +147,32 @@ export default function NewCampaignPage() {
     },
     []
   );
+
+  // ── When campaign rehydrates, check for pending emails ──
+  useEffect(() => {
+    if (!hydrated || !campaignId || !launched) return;
+    // Look for any pending email for this campaign
+    api.listEmails(campaignId).then((emails) => {
+      const pending = emails.find((e) => e.status === "pending_approval");
+      if (pending && !pendingEmail) {
+        setPendingEmail(pending);
+        setEditingBody(pending.body_text);
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, campaignId, launched]);
+
+  // ── Handle completed or errored pending emails ──
+  const handleClearCampaign = useCallback(() => {
+    try { sessionStorage.removeItem("coldpilot_campaign"); } catch {}
+    setLaunched(false);
+    setCampaignId(null);
+    setFeed([]);
+    setStreamDone(false);
+    setPendingEmail(null);
+    setError("");
+    setSaving(false);
+  }, []);
 
   // ── SSE listener ──
   useEffect(() => {
@@ -305,13 +370,7 @@ export default function NewCampaignPage() {
   }
 
   function handleNewCampaign() {
-    setLaunched(false);
-    setCampaignId(null);
-    setFeed([]);
-    setStreamDone(false);
-    setPendingEmail(null);
-    setError("");
-    setSaving(false);
+    handleClearCampaign();
   }
 
   const validCount = prospects.filter((p) => p.company.trim()).length;

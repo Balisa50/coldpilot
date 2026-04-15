@@ -58,38 +58,62 @@ PERSONALISATION_POINTS: <JSON array with the one point you referenced>"""
 
 
 def _parse_email_output(text: str) -> dict | None:
-    """Parse SUBJECT/BODY/PERSONALISATION_POINTS from LLM output."""
-    lines = text.strip().split("\n")
-    subject = ""
-    body_lines = []
-    pp_raw = ""
-    section = None
-
-    for line in lines:
-        if line.startswith("SUBJECT:"):
-            subject = line[len("SUBJECT:"):].strip()
-            section = "subject"
-        elif line.startswith("BODY:"):
-            body_lines.append(line[len("BODY:"):].strip())
-            section = "body"
-        elif line.startswith("PERSONALISATION_POINTS:"):
-            pp_raw = line[len("PERSONALISATION_POINTS:"):].strip()
-            section = "pp"
-        elif section == "body":
-            body_lines.append(line)
-        elif section == "pp":
-            pp_raw += line
-
-    if not subject or not body_lines:
+    """Parse SUBJECT/BODY/PERSONALISATION_POINTS from LLM output.
+    Lenient: accepts lowercase keys, 'Subject Line:', markdown bold, etc."""
+    if not text or not text.strip():
         return None
 
-    body_text = "\n".join(body_lines).strip()
+    import re as _re
 
-    # Parse personalisation points
-    try:
-        pp = json.loads(pp_raw) if pp_raw else []
-    except json.JSONDecodeError:
-        pp = []
+    # Strip markdown bold, code fences, leading/trailing whitespace
+    clean = text.strip()
+    clean = _re.sub(r"\*\*", "", clean)
+    clean = _re.sub(r"^```[a-z]*\n?", "", clean)
+    clean = _re.sub(r"\n?```$", "", clean)
+
+    # Case-insensitive field extraction
+    subj_match = _re.search(r"(?:^|\n)\s*(?:subject|subject\s*line)\s*:\s*(.+)",
+                            clean, _re.IGNORECASE)
+    body_match = _re.search(r"(?:^|\n)\s*body\s*:\s*(.*?)(?=\n\s*personalisation|\n\s*personalization|$)",
+                            clean, _re.IGNORECASE | _re.DOTALL)
+    pp_match = _re.search(r"(?:^|\n)\s*personalisation[_\s]*points?\s*:\s*(.+)",
+                          clean, _re.IGNORECASE | _re.DOTALL)
+    if not pp_match:
+        pp_match = _re.search(r"(?:^|\n)\s*personalization[_\s]*points?\s*:\s*(.+)",
+                              clean, _re.IGNORECASE | _re.DOTALL)
+
+    subject = subj_match.group(1).strip() if subj_match else ""
+    body_text = body_match.group(1).strip() if body_match else ""
+    pp_raw = pp_match.group(1).strip() if pp_match else ""
+
+    # Fallback: no SUBJECT/BODY markers but response has content — treat
+    # first line as subject, rest as body
+    if not subject and not body_text:
+        parts = clean.split("\n", 1)
+        if len(parts) == 2 and len(parts[0]) < 120:
+            subject = parts[0].strip(" :-*#")
+            body_text = parts[1].strip()
+
+    if not subject or not body_text:
+        return None
+
+    # Parse personalisation points (accept JSON array or comma list)
+    pp: list = []
+    if pp_raw:
+        try:
+            pp = json.loads(pp_raw)
+            if not isinstance(pp, list):
+                pp = [str(pp)]
+        except json.JSONDecodeError:
+            # Try extracting JSON array from within text
+            m = _re.search(r"\[.*\]", pp_raw, _re.DOTALL)
+            if m:
+                try:
+                    pp = json.loads(m.group(0))
+                except json.JSONDecodeError:
+                    pp = [pp_raw[:200]]
+            else:
+                pp = [s.strip() for s in pp_raw.split(",") if s.strip()][:5]
 
     # Convert plain text to simple HTML
     body_html = body_text.replace("\n\n", "</p><p>").replace("\n", "<br>")
@@ -165,11 +189,12 @@ Write the cold outreach email. Reference at least one SPECIFIC research fact."""
             continue
 
         result = _parse_email_output(response)
-        if result and result["personalisation_points"]:
+        if result and result.get("personalisation_points"):
             return result
 
-    # All retries exhausted — return the last successfully-parsed attempt if we have one
-    if result:
+    # All retries exhausted — return the last parsed attempt even without
+    # personalisation_points (better than a total failure)
+    if result and result.get("subject") and result.get("body_text"):
         return result
 
     # Nothing parsed — return a dict with error detail so orchestrator can log it

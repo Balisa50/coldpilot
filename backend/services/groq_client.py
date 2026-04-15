@@ -40,13 +40,29 @@ async def chat(
         "max_tokens": max_tokens,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             f"{GROQ_BASE}/chat/completions",
             headers=headers,
             json=payload,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            # Surface the actual error message from Groq
+            try:
+                err_body = resp.json()
+                err_msg = err_body.get("error", {}).get("message", resp.text[:300])
+            except Exception:
+                err_msg = resp.text[:300]
+            raise RuntimeError(f"Groq API {resp.status_code}: {err_msg}")
         data = resp.json()
 
-    return data["choices"][0]["message"]["content"]
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"Groq returned no choices: {str(data)[:300]}")
+
+    content = (choices[0].get("message") or {}).get("content") or ""
+    if not content.strip():
+        finish = choices[0].get("finish_reason", "")
+        raise RuntimeError(f"Groq returned empty content (finish_reason={finish})")
+
+    return content
