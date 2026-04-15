@@ -63,9 +63,41 @@ async def parse_cv(file: UploadFile = File(...)):
     }
 
 
+def _sanitize_cv_text(raw: str | None) -> str | None:
+    """Reject/clean cv_text that is clearly raw binary (PDF bytes, etc.).
+
+    The dashboard is supposed to POST PDFs to /parse-cv and only store
+    extracted text in this field. This is a defense-in-depth check in case
+    an old client or a different caller sends binary.
+    """
+    if not raw:
+        return raw
+    # Obvious binary header
+    if raw.startswith("%PDF-") or raw.startswith("\x89PNG") or raw.startswith("PK\x03\x04"):
+        raise HTTPException(
+            400,
+            "cv_text looks like raw binary (PDF/image/zip header). "
+            "Upload the PDF via /api/campaigns/parse-cv first and pass the "
+            "extracted text instead.",
+        )
+    # High ratio of control/replacement chars → binary garbage
+    bad = sum(1 for c in raw if c == "\ufffd" or (ord(c) < 32 and c not in "\n\r\t"))
+    if len(raw) > 50 and bad > len(raw) * 0.05:
+        raise HTTPException(
+            400,
+            f"cv_text contains too many non-printable bytes "
+            f"({bad}/{len(raw)}). Use /api/campaigns/parse-cv to extract "
+            f"clean text from the PDF first.",
+        )
+    return raw
+
+
 @router.post("")
 async def create_campaign(body: CampaignCreate, background: BackgroundTasks):
     data = body.model_dump()
+
+    # Defensive: reject obvious PDF/binary garbage in cv_text (legacy clients)
+    data["cv_text"] = _sanitize_cv_text(data.get("cv_text"))
 
     # For seeker mode: create prospect rows from target_companies
     target_companies = data.pop("target_companies", None) or []

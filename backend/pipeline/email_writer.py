@@ -10,6 +10,23 @@ import json
 from backend.services import groq_client
 
 
+def _strip_binary(text: str, max_len: int = 8000) -> str:
+    """Remove control/replacement chars and cap length before prompting Groq.
+
+    Prevents binary garbage (e.g. unparsed PDF bytes in cv_text) from
+    poisoning the LLM prompt and causing it to echo PDF stream markers
+    as output.
+    """
+    if not text:
+        return ""
+    # Drop every char that's a control byte (except \n, \r, \t) or U+FFFD.
+    cleaned = "".join(
+        c for c in text
+        if c != "\ufffd" and (ord(c) >= 32 or c in "\n\r\t")
+    )
+    return cleaned[:max_len]
+
+
 HUNTER_SYSTEM = """You write cold outreach emails for a business reaching out to potential clients.
 
 Rules:
@@ -142,7 +159,13 @@ async def write_initial_email(
 
     # Build the user prompt with all context
     if is_seeker:
-        cv_excerpt = (campaign.get("cv_text") or "")[:2000]
+        # Strip any binary garbage that slipped through (e.g. unparsed PDF)
+        cv_excerpt = _strip_binary(campaign.get("cv_text") or "", max_len=2000)
+        if not cv_excerpt.strip():
+            return {
+                "__error__": "CV text is empty or contained only binary data. "
+                             "Please re-upload your CV as a PDF so it can be parsed correctly."
+            }
         user_prompt = f"""Candidate CV highlights:
 {cv_excerpt}
 
