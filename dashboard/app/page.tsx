@@ -268,8 +268,25 @@ export default function NewCampaignPage() {
             addFeed(`Failed: ${data.detail || "unknown error"}`, "error");
             break;
           case "campaign_complete":
+          case "campaign_completed":
             addFeed("Campaign complete!", "success");
             setStreamDone(true);
+            break;
+          case "campaign_no_prospects":
+            addFeed(
+              "No prospects to process. Add target companies (Seeker) or prospects (Hunter) before starting.",
+              "warn",
+            );
+            setStreamDone(true);
+            break;
+          case "daily_limit_reached":
+            addFeed("Daily send limit reached — remaining emails are queued for tomorrow.", "warn");
+            break;
+          case "send_failed":
+            addFeed(`Send failed: ${data.error || "unknown reason"}`, "error");
+            break;
+          case "pipeline_error":
+            addFeed(`Pipeline error: ${data.error || "unknown"}`, "error");
             break;
           case "error":
             addFeed(`Error: ${data.detail || data.message || "unknown"}`, "error");
@@ -313,6 +330,27 @@ export default function NewCampaignPage() {
       dry_run: dryRun,
     };
 
+    // Target companies are now shared between modes — both need prospects
+    const validProspects = prospects.filter((p) => p.company.trim());
+    if (validProspects.length === 0) {
+      setSaving(false);
+      setError(
+        mode === "hunter"
+          ? "Add at least one target company you want to reach out to."
+          : "Add at least one company you want to apply to.",
+      );
+      return;
+    }
+    payload.target_companies = validProspects.map(
+      (p): TargetCompany => ({
+        company_name: p.company.trim(),
+        company_domain: p.domain.trim() || undefined,
+        contact_name: p.name.trim() || undefined,
+        contact_email: p.email.trim() || undefined,
+        contact_role: p.role.trim() || undefined,
+      }),
+    );
+
     if (mode === "hunter") {
       payload.company_name = companyName;
       payload.company_description = companyDesc || undefined;
@@ -327,18 +365,6 @@ export default function NewCampaignPage() {
     } else {
       payload.cv_text = cvText;
       payload.desired_role = desiredRole || undefined;
-      const validProspects = prospects.filter((p) => p.company.trim());
-      if (validProspects.length > 0) {
-        payload.target_companies = validProspects.map(
-          (p): TargetCompany => ({
-            company_name: p.company.trim(),
-            company_domain: p.domain.trim() || undefined,
-            contact_name: p.name.trim() || undefined,
-            contact_email: p.email.trim() || undefined,
-            contact_role: p.role.trim() || undefined,
-          })
-        );
-      }
     }
 
     try {
@@ -640,94 +666,6 @@ export default function NewCampaignPage() {
               </div>
             </div>
 
-            {/* Target Companies */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-text-secondary">
-                  Target Companies
-                  <span className="text-text-muted ml-1">({validCount}/20)</span>
-                </span>
-                {prospects.length < 20 && (
-                  <button
-                    type="button"
-                    onClick={addProspect}
-                    className="text-xs text-accent hover:text-accent-hover transition-colors"
-                  >
-                    + Add Another
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-3">
-                {prospects.map((p, i) => (
-                  <div
-                    key={i}
-                    className="border border-border rounded-lg p-3 space-y-2 relative group"
-                  >
-                    {prospects.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeProspect(i)}
-                        className="absolute top-2 right-2 text-text-muted hover:text-red text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Remove"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        value={p.company}
-                        onChange={(e) => updateProspect(i, "company", e.target.value)}
-                        placeholder="Company name *"
-                        className="input"
-                      />
-                      <input
-                        value={p.domain}
-                        onChange={(e) => updateProspect(i, "domain", e.target.value)}
-                        placeholder="Domain (optional)"
-                        className="input"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <input
-                        value={p.name}
-                        onChange={(e) => updateProspect(i, "name", e.target.value)}
-                        placeholder="Contact name"
-                        className="input"
-                      />
-                      <input
-                        value={p.email}
-                        onChange={(e) => updateProspect(i, "email", e.target.value)}
-                        placeholder="Contact email"
-                        type="email"
-                        className="input"
-                      />
-                      <input
-                        value={p.role}
-                        onChange={(e) => updateProspect(i, "role", e.target.value)}
-                        placeholder="Role/title"
-                        className="input"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {prospects.length < 20 && (
-                <button
-                  type="button"
-                  onClick={addProspect}
-                  className="mt-3 w-full border border-dashed border-border hover:border-accent/40 rounded-lg py-2.5 text-xs text-text-muted hover:text-accent transition-colors"
-                >
-                  + Add Another Company
-                </button>
-              )}
-            </div>
-
             {/* Desired Role */}
             <label className="block">
               <span className="text-sm text-text-secondary">
@@ -743,6 +681,90 @@ export default function NewCampaignPage() {
             </label>
           </div>
         )}
+
+        {/* Target Companies — shared by both modes */}
+        <div className="bg-surface rounded-xl border border-border p-6">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-text-muted uppercase tracking-wider font-medium">
+              {mode === "hunter" ? "Target Prospects" : "Target Companies"}
+            </p>
+            <span className="text-xs text-text-muted">{validCount}/20</span>
+          </div>
+          <p className="text-xs text-text-muted mb-4">
+            {mode === "hunter"
+              ? "Companies you want to reach out to. We'll find contacts if you don't provide them."
+              : "Companies you want to apply to. Add contact info if you have it."}
+          </p>
+
+          <div className="space-y-3">
+            {prospects.map((p, i) => (
+              <div
+                key={i}
+                className="border border-border rounded-lg p-3 space-y-2 relative group"
+              >
+                {prospects.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeProspect(i)}
+                    className="absolute top-2 right-2 text-text-muted hover:text-red text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={p.company}
+                    onChange={(e) => updateProspect(i, "company", e.target.value)}
+                    placeholder="Company name *"
+                    className="input"
+                  />
+                  <input
+                    value={p.domain}
+                    onChange={(e) => updateProspect(i, "domain", e.target.value)}
+                    placeholder="Domain (optional)"
+                    className="input"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    value={p.name}
+                    onChange={(e) => updateProspect(i, "name", e.target.value)}
+                    placeholder="Contact name"
+                    className="input"
+                  />
+                  <input
+                    value={p.email}
+                    onChange={(e) => updateProspect(i, "email", e.target.value)}
+                    placeholder="Contact email"
+                    type="email"
+                    className="input"
+                  />
+                  <input
+                    value={p.role}
+                    onChange={(e) => updateProspect(i, "role", e.target.value)}
+                    placeholder="Role/title"
+                    className="input"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {prospects.length < 20 && (
+            <button
+              type="button"
+              onClick={addProspect}
+              className="mt-3 w-full border border-dashed border-border hover:border-accent/40 rounded-lg py-2.5 text-xs text-text-muted hover:text-accent transition-colors"
+            >
+              + Add Another Company
+            </button>
+          )}
+        </div>
 
         {/* Autonomy Level */}
         <div>

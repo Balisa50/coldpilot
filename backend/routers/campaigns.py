@@ -104,21 +104,27 @@ async def create_campaign(body: CampaignCreate, background: BackgroundTasks):
 
     campaign = await db.create_campaign(data)
 
-    # Auto-create prospects for seeker mode (with optional contact info)
-    if body.mode == "seeker" and target_companies:
+    # Auto-create prospects from target_companies for BOTH modes.
+    # Hunter mode: contact_finder will look up emails if not provided.
+    # Seeker mode: user typically provides contacts; if not, contact_finder runs too.
+    if target_companies:
         for tc in target_companies:
             prospect_data: dict = {
                 "campaign_id": campaign["id"],
                 "company_name": tc["company_name"],
                 "company_domain": tc.get("company_domain"),
             }
-            # If user already has contact info, include it
+            # If user already has contact info, include it and skip contact-finding
             if tc.get("contact_email"):
                 prospect_data["contact_name"] = tc.get("contact_name")
                 prospect_data["contact_email"] = tc["contact_email"]
                 prospect_data["contact_role"] = tc.get("contact_role")
                 prospect_data["email_source"] = "manual"
                 prospect_data["status"] = "contact_found"  # skip contact-finding
+            elif tc.get("contact_name") or tc.get("contact_role"):
+                # Partial contact info — keep what's given, still find email
+                prospect_data["contact_name"] = tc.get("contact_name")
+                prospect_data["contact_role"] = tc.get("contact_role")
             await db.create_prospect(prospect_data)
 
     return campaign
