@@ -185,12 +185,17 @@ Write the cold outreach email. Reference at least one SPECIFIC research fact."""
             )
             last_response = response
         except Exception as exc:
-            last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
-            continue
+            # Groq client already tried all fallback models — no point
+            # retrying at this level. Surface the error and stop.
+            last_error = f"{type(exc).__name__}: {str(exc)[:300]}"
+            break
 
         result = _parse_email_output(response)
         if result and result.get("personalisation_points"):
             return result
+        # Parse succeeded but missing personalisation — retry with nudge.
+        # If parse failed entirely, also retry in case it was a one-off
+        # format glitch.
 
     # All retries exhausted — return the last parsed attempt even without
     # personalisation_points (better than a total failure)
