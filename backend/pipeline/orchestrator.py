@@ -41,8 +41,10 @@ async def process_prospect(
                                             "source": "manual"})
                 await _publish(cid, "contact_found", {
                     "prospect_id": pid,
-                    "email": prospect["contact_email"],
-                    "name": prospect.get("contact_name", ""),
+                    "contact_email": prospect["contact_email"],
+                    "contact_name": prospect.get("contact_name", ""),
+                    "contact_role": prospect.get("contact_role", ""),
+                    "company_name": prospect.get("company_name", ""),
                     "source": "manual",
                 })
             else:
@@ -71,8 +73,10 @@ async def process_prospect(
                                             "source": contact.get("email_source")})
                 await _publish(cid, "contact_found", {
                     "prospect_id": pid,
-                    "email": contact["contact_email"],
-                    "name": contact.get("contact_name", ""),
+                    "contact_email": contact["contact_email"],
+                    "contact_name": contact.get("contact_name", ""),
+                    "contact_role": contact.get("contact_role", ""),
+                    "company_name": prospect.get("company_name", ""),
                 })
 
             # Refresh prospect after update
@@ -98,10 +102,15 @@ async def process_prospect(
             await _publish(cid, "stage_start", {"prospect_id": pid, "stage": "email_writing"})
 
             email_data = await email_writer.write_initial_email(campaign, prospect, notes)
-            if not email_data:
+            if not email_data or email_data.get("__error__"):
+                err = (email_data or {}).get("__error__", "Unknown error")
                 await db.update_prospect(pid, {"status": "failed"})
-                await db.log_action("email_write_failed", cid, pid)
-                await _publish(cid, "email_write_failed", {"prospect_id": pid})
+                await db.log_action("email_write_failed", cid, pid,
+                                    detail={"error": err})
+                await _publish(cid, "email_write_failed", {
+                    "prospect_id": pid,
+                    "error": err,
+                })
                 return
 
             email_record = await db.create_email({

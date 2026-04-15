@@ -125,17 +125,33 @@ export default function NewCampaignPage() {
           case "finding_contact":
             addFeed(`Finding contact at ${data.company_name || "company"}...`, "info");
             break;
-          case "contact_found":
-            addFeed(
-              `Found: ${data.contact_name || "Contact"}, ${data.contact_role || "Role"} -- ${data.contact_email || ""}`,
-              "success"
-            );
+          case "contact_found": {
+            const name = data.contact_name || "";
+            const role = data.contact_role || "";
+            const email = data.contact_email || "";
+            const company = data.company_name || "";
+            const parts: string[] = [];
+            if (name) parts.push(String(name));
+            if (role) parts.push(String(role));
+            if (company && !name && !role) parts.push(`at ${company}`);
+            const who = parts.length > 0 ? parts.join(", ") : "contact";
+            const msg = email ? `Found ${who} -- ${email}` : `Found ${who}`;
+            addFeed(msg, "success");
             break;
-          case "researching":
-            addFeed(`Researching ${data.company_name || "company"}...`, "info");
+          }
+          case "stage_start": {
+            const stage = data.stage || "";
+            const labels: Record<string, string> = {
+              contact_finding: "Finding contact...",
+              research: "Researching the company...",
+              email_writing: "Writing personalised email...",
+              sending: "Sending email...",
+            };
+            if (labels[stage as string]) addFeed(labels[stage as string], "info");
             break;
-          case "writing_email":
-            addFeed("Writing personalised email...", "info");
+          }
+          case "research_complete":
+            if (data.summary) addFeed(`Research: ${String(data.summary).slice(0, 150)}...`, "info");
             break;
           case "email_drafted":
             if (autonomy === "copilot" && data.email_id) {
@@ -145,8 +161,20 @@ export default function NewCampaignPage() {
                 setEditingBody(email.body_text);
               }).catch(() => {});
             } else {
-              addFeed("Email drafted", "info");
+              addFeed(`Email drafted${data.subject ? `: "${data.subject}"` : ""}`, "info");
             }
+            break;
+          case "email_write_failed":
+            addFeed(`Email writing failed: ${data.error || "unknown reason"}`, "error");
+            break;
+          case "contact_not_found":
+            addFeed("Could not find contact", "warn");
+            break;
+          case "researching":
+            addFeed(`Researching ${data.company_name || "company"}...`, "info");
+            break;
+          case "writing_email":
+            addFeed("Writing personalised email...", "info");
             break;
           case "email_sent":
             addFeed(`Email sent to ${data.contact_email || "contact"}`, "success");
@@ -167,8 +195,12 @@ export default function NewCampaignPage() {
           case "error":
             addFeed(`Error: ${data.detail || data.message || "unknown"}`, "error");
             break;
+          case "campaign_started":
+            // Silent — we already announced this
+            break;
           default:
-            addFeed(`${event}: ${data.detail || JSON.stringify(data)}`, "info");
+            // Suppress noisy events instead of dumping JSON
+            if (data.detail) addFeed(`${event}: ${data.detail}`, "info");
         }
       } catch {
         // ignore parse errors

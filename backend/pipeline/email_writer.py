@@ -148,19 +148,34 @@ Opportunities: {json.dumps(research_notes.get('opportunities', []))}
 
 Write the cold outreach email. Reference at least one SPECIFIC research fact."""
 
+    last_response: str = ""
+    result: dict | None = None
+    last_error: str = ""
+
     for attempt in range(max_retries + 1):
-        response = await groq_client.chat(
-            system=system,
-            user=user_prompt if attempt == 0 else user_prompt + "\n\nPREVIOUS ATTEMPT LACKED PERSONALISATION. You MUST include a specific, concrete research-based fact. Try again.",
-            temperature=0.7 + (attempt * 0.1),  # Slightly more creative on retry
-        )
+        try:
+            response = await groq_client.chat(
+                system=system,
+                user=user_prompt if attempt == 0 else user_prompt + "\n\nPREVIOUS ATTEMPT LACKED PERSONALISATION. You MUST include a specific, concrete research-based fact. Try again.",
+                temperature=0.7 + (attempt * 0.1),  # Slightly more creative on retry
+            )
+            last_response = response
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            continue
 
         result = _parse_email_output(response)
         if result and result["personalisation_points"]:
             return result
 
-    # All retries exhausted — return last attempt anyway (better than nothing)
-    return result
+    # All retries exhausted — return the last successfully-parsed attempt if we have one
+    if result:
+        return result
+
+    # Nothing parsed — return a dict with error detail so orchestrator can log it
+    preview = last_response[:300] if last_response else "(no response)"
+    err_detail = last_error or f"LLM did not produce SUBJECT:/BODY: format. Got: {preview}"
+    return {"__error__": err_detail}
 
 
 async def write_followup_email(
