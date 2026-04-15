@@ -124,11 +124,25 @@ export default function NewCampaignPage() {
     if (!file) return;
     setCvFile(file);
     setCvUploading(true);
+    setError("");
     try {
-      const text = await file.text();
-      setCvText(text.slice(0, 3000));
-    } catch {
-      setCvText("[CV uploaded]");
+      const isPdf =
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf");
+      if (isPdf) {
+        // PDFs are binary — we MUST parse them server-side, never via file.text()
+        const result = await api.parseCv(file);
+        setCvText(result.text);
+      } else {
+        // Plain text / markdown CVs are safe to read directly
+        const text = await file.text();
+        setCvText(text.slice(0, 8000));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to read CV";
+      setError(`CV upload failed: ${msg}`);
+      setCvFile(null);
+      setCvText("");
     }
     setCvUploading(false);
   }

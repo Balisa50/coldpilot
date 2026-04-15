@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from backend import db, event_bus
@@ -12,6 +13,54 @@ from backend.models import CampaignCreate, CampaignUpdate
 from backend.pipeline.orchestrator import run_campaign
 
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
+
+
+@router.post("/parse-cv")
+async def parse_cv(file: UploadFile = File(...)):
+    """Extract plain text from an uploaded CV PDF.
+
+    The dashboard uploads the raw PDF here so we never store binary bytes
+    in the database as 'cv_text' (which breaks the LLM prompt).
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Empty file")
+
+    # Try pypdf first
+    text = ""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(raw))
+        pages = []
+        for page in reader.pages:
+            try:
+                t = page.extract_text() or ""
+            except Exception:
+                t = ""
+            if t:
+                pages.append(t)
+        text = "\n\n".join(pages).strip()
+    except Exception as exc:
+        raise HTTPException(
+            400,
+            f"Could not read PDF ({type(exc).__name__}). Is the file a valid PDF?",
+        )
+
+    if not text:
+        raise HTTPException(
+            400,
+            "No text found in PDF. It may be image-based (scanned). "
+            "Please paste your CV text manually.",
+        )
+
+    # Cap at something sane for LLM prompts — 8k chars is plenty of context
+    text = text[:8000]
+
+    return {
+        "text": text,
+        "char_count": len(text),
+        "filename": file.filename or "cv.pdf",
+    }
 
 
 @router.post("")

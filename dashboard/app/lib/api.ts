@@ -115,6 +115,19 @@ export const api = {
   updateSettings: (data: { smtp_user?: string; smtp_pass?: string; sender_name?: string; sender_email?: string }) =>
     request<{ ok: boolean }>("/api/settings", { method: "PATCH", body: JSON.stringify(data) }),
 
+  // CV parsing (PDF upload → extracted text)
+  parseCv: async (file: File): Promise<{ text: string; char_count: number; filename: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const url = USE_PROXY ? "/api/proxy/campaigns/parse-cv" : `${API_BASE}/api/campaigns/parse-cv`;
+    const res = await fetch(url, { method: "POST", body: form });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`${res.status}: ${body}`);
+    }
+    return res.json();
+  },
+
   // Health
   health: () => request<{ status: string }>("/api/health"),
 
