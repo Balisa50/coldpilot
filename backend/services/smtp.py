@@ -27,6 +27,7 @@ async def send_email(
     body_html: str,
     body_text: str,
     from_name: str | None = None,
+    list_unsubscribe: str | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
 ) -> dict:
@@ -55,6 +56,12 @@ async def send_email(
     msg["To"] = to_email
     msg["Subject"] = subject
     msg["Message-ID"] = msg_id
+
+    # List-Unsubscribe — required by Gmail/Yahoo 2024 for bulk senders.
+    # Without this, cold emails are far more likely to land in spam.
+    if list_unsubscribe:
+        msg["List-Unsubscribe"] = f"<{list_unsubscribe}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
     # Thread follow-ups into the same conversation (RFC 2822)
     if in_reply_to:
