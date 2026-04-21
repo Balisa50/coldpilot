@@ -126,7 +126,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Groq (LLM)</p>
-              <p className="text-xs text-text-muted mt-0.5">Writes personalised emails — set GROQ_API_KEY on Render</p>
+              <p className="text-xs text-text-muted mt-0.5">Writes and personalises outreach emails</p>
             </div>
             <StatusBadge ok={!!settings?.groq_configured} />
           </div>
@@ -137,7 +137,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Tavily (Research)</p>
-              <p className="text-xs text-text-muted mt-0.5">Company research before writing — set TAVILY_API_KEY on Render</p>
+              <p className="text-xs text-text-muted mt-0.5">Researches target companies before writing</p>
             </div>
             <StatusBadge ok={!!settings?.tavily_configured} />
           </div>
@@ -148,16 +148,12 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Hunter.io (Contact Finder)</p>
-              <p className="text-xs text-text-muted mt-0.5">Finds email addresses for Hunter mode — set HUNTER_API_KEY on Render</p>
+              <p className="text-xs text-text-muted mt-0.5">Finds contact emails for Hunter mode</p>
             </div>
             <StatusBadge ok={!!settings?.hunter_configured} />
           </div>
         </div>
       </div>
-
-      <p className="text-xs text-text-muted text-center mt-6">
-        All credentials are managed on Render — never entered here. Users never see or configure API keys.
-      </p>
     </div>
   );
 }
