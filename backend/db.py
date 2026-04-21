@@ -1,17 +1,28 @@
 """
-SQLite database layer. All DB access goes through this module.
-Uses aiosqlite for async access from FastAPI.
+Database layer — supports SQLite (local/dev) and PostgreSQL (production).
+
+Set DATABASE_URL env var to use PostgreSQL (e.g. a free Supabase connection string).
+Without DATABASE_URL, falls back to SQLite at data/coldpilot.db.
 """
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
+import re
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
+# ─── Backend detection ───────────────────────────────────────────────────────
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+USE_PG: bool = bool(DATABASE_URL)
+
+if USE_PG:
+    import asyncpg as _asyncpg  # type: ignore
+    _pg_pool: Any = None          # asyncpg.Pool, typed as Any to avoid import issues
+else:
+    import aiosqlite as _aiosqlite  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "coldpilot.db"
@@ -30,29 +41,274 @@ def today_str() -> str:
     return date.today().isoformat()
 
 
-async def get_db() -> aiosqlite.Connection:
-    db = await aiosqlite.connect(str(DB_PATH))
-    db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    return db
+# ─── PostgreSQL schema ───────────────────────────────────────────────────────
+# TEXT for all timestamp columns so the format matches SQLite's datetime('now').
+# DEFAULT uses to_char(NOW() AT TIME ZONE 'UTC', ...) to produce the same
+# 'YYYY-MM-DD HH24:MI:SS' string that now_iso() and SQLite datetime('now') use.
+_PG_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS campaigns (
+    id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL CHECK(mode IN ('hunter','seeker')),
+    autonomy TEXT NOT NULL DEFAULT 'copilot'
+        CHECK(autonomy IN ('copilot','supervised','full_auto')),
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','active','paused','completed')),
+    dry_run INTEGER NOT NULL DEFAULT 0,
+    company_name TEXT,
+    company_url TEXT,
+    company_description TEXT,
+    ideal_customer_profile TEXT,
+    cv_text TEXT,
+    desired_role TEXT,
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'),
+    updated_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS prospects (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    company_name TEXT NOT NULL,
+    company_domain TEXT,
+    contact_name TEXT,
+    contact_email TEXT,
+    contact_role TEXT,
+    email_source TEXT CHECK(email_source IN ('hunter','pattern_guess','manual')),
+    email_verified INTEGER DEFAULT 0,
+    research_notes TEXT,
+    unsubscribed_at TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','researching','contact_found',
+                         'email_drafted','email_approved','email_sent',
+                         'replied','bounced','opted_out','failed')),
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'),
+    updated_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS emails (
+    id TEXT PRIMARY KEY,
+    prospect_id TEXT NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    email_type TEXT NOT NULL CHECK(email_type IN ('initial','followup_1','followup_2')),
+    subject TEXT NOT NULL,
+    body_html TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    personalisation_points TEXT,
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','pending_approval','approved','sent','bounced','failed')),
+    message_id TEXT,
+    sent_at TEXT,
+    replied_at TEXT,
+    opened_at TEXT,
+    clicked_at TEXT,
+    bounce_reason TEXT,
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS followup_schedule (
+    id TEXT PRIMARY KEY,
+    email_id TEXT NOT NULL REFERENCES emails(id) ON DELETE CASCADE,
+    prospect_id TEXT NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+    scheduled_for TEXT NOT NULL,
+    followup_number INTEGER NOT NULL CHECK(followup_number IN (1,2)),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','sent','cancelled')),
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS action_log (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT REFERENCES campaigns(id),
+    prospect_id TEXT REFERENCES prospects(id),
+    email_id TEXT REFERENCES emails(id),
+    action TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS daily_send_log (
+    date TEXT PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0,
+    limit_for_day INTEGER NOT NULL DEFAULT 5
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospects_campaign ON prospects(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
+CREATE INDEX IF NOT EXISTS idx_emails_prospect ON emails(prospect_id);
+CREATE INDEX IF NOT EXISTS idx_emails_campaign ON emails(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
+CREATE INDEX IF NOT EXISTS idx_followup_scheduled ON followup_schedule(scheduled_for, status);
+CREATE INDEX IF NOT EXISTS idx_followup_campaign ON followup_schedule(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_action_log_campaign ON action_log(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_action_log_created ON action_log(created_at)\
+"""
+
+
+# ─── Unified connection adapter ──────────────────────────────────────────────
+
+class _ExecResult:
+    """Minimal cursor-like result from _Conn.execute(), exposing rowcount."""
+    __slots__ = ("rowcount",)
+
+    def __init__(self, rowcount: int = -1) -> None:
+        self.rowcount = rowcount
+
+
+class _Conn:
+    """
+    Wraps either an aiosqlite.Connection or an asyncpg.Connection and exposes
+    a single unified interface used by every function in this module.
+
+    Differences handled transparently:
+    - ``?`` placeholders  →  ``$1 $2 ...``  (asyncpg)
+    - ``INSERT OR IGNORE``  →  ``INSERT … ON CONFLICT DO NOTHING``  (asyncpg)
+    - ``datetime('now')``  →  ``CURRENT_TIMESTAMP``  (asyncpg)
+    - ``execute_fetchall``  →  ``fetch``  (asyncpg)
+    - ``commit()`` is a no-op for asyncpg (autocommit mode)
+    """
+
+    def __init__(self, conn: Any, is_pg: bool) -> None:
+        self._conn = conn
+        self._is_pg = is_pg
+
+    # ── SQL adaptation ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _adapt(sql: str, params: tuple) -> tuple[str, list]:
+        """Convert SQLite-style SQL + ? params into asyncpg $n form."""
+        # 1. Replace ? with $1, $2, …
+        out: list[str] = []
+        n = 0
+        for ch in sql:
+            if ch == "?":
+                n += 1
+                out.append(f"${n}")
+            else:
+                out.append(ch)
+        sql = "".join(out)
+
+        # 2. INSERT OR IGNORE  →  INSERT … ON CONFLICT DO NOTHING
+        if re.search(r"\bINSERT\s+OR\s+IGNORE\b", sql, re.IGNORECASE):
+            sql = re.sub(r"\bINSERT\s+OR\s+IGNORE\b", "INSERT", sql, flags=re.IGNORECASE)
+            sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+
+        # 3. datetime('now')  →  CURRENT_TIMESTAMP
+        sql = sql.replace("datetime('now')", "CURRENT_TIMESTAMP")
+
+        return sql, list(params)
+
+    # ── Core methods ──────────────────────────────────────────────────────────
+
+    async def execute(self, sql: str, params: tuple | list = ()) -> _ExecResult:
+        if self._is_pg:
+            sql, params = self._adapt(sql, tuple(params))
+            status: str = await self._conn.execute(sql, *params)
+            try:
+                rowcount = int(status.split()[-1])
+            except (ValueError, IndexError):
+                rowcount = -1
+            return _ExecResult(rowcount)
+        else:
+            cursor = await self._conn.execute(sql, params)
+            return _ExecResult(cursor.rowcount)
+
+    async def execute_fetchall(self, sql: str, params: tuple | list = ()) -> list:
+        if self._is_pg:
+            sql, params = self._adapt(sql, tuple(params))
+            rows = await self._conn.fetch(sql, *params)
+            return [dict(r) for r in rows]
+        else:
+            return await self._conn.execute_fetchall(sql, params)
+
+    async def executescript(self, script: str) -> None:
+        """Run multiple SQL statements at once. SQLite only — used by init_db."""
+        if not self._is_pg:
+            await self._conn.executescript(script)
+
+    async def commit(self) -> None:
+        """Persist writes. No-op for asyncpg which uses autocommit."""
+        if not self._is_pg:
+            await self._conn.commit()
+
+    async def close(self) -> None:
+        if self._is_pg:
+            await _pg_pool.release(self._conn)
+        else:
+            await self._conn.close()
+
+
+# ─── Connection factory ───────────────────────────────────────────────────────
+
+async def _ensure_pool() -> None:
+    """Lazily initialise the asyncpg connection pool (called before every PG op)."""
+    global _pg_pool
+    if _pg_pool is None:
+        kwargs: dict = {"min_size": 1, "max_size": 5}
+        # PgBouncer (Supabase pooler uses port 6543) does not support
+        # prepared statements — disable the statement cache for those URLs.
+        if "pgbouncer" in DATABASE_URL.lower() or ":6543/" in DATABASE_URL:
+            kwargs["statement_cache_size"] = 0
+        _pg_pool = await _asyncpg.create_pool(DATABASE_URL, **kwargs)
+
+
+async def get_db() -> _Conn:
+    if USE_PG:
+        await _ensure_pool()
+        conn = await _pg_pool.acquire()
+        return _Conn(conn, is_pg=True)
+    else:
+        raw = await _aiosqlite.connect(str(DB_PATH))
+        raw.row_factory = _aiosqlite.Row
+        await raw.execute("PRAGMA journal_mode=WAL")
+        await raw.execute("PRAGMA foreign_keys=ON")
+        return _Conn(raw, is_pg=False)
 
 
 async def init_db() -> None:
+    if USE_PG:
+        await _init_pg()
+        return
+    # SQLite path
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     db = await get_db()
     try:
         await db.executescript(schema)
         await db.commit()
-        # Migrations for existing databases
         await _migrate(db)
     finally:
         await db.close()
 
 
-async def _migrate(db: aiosqlite.Connection) -> None:
-    """Apply schema migrations to existing databases without dropping data."""
+async def _init_pg() -> None:
+    """Create Postgres tables if they don't exist + run idempotent migrations."""
+    await _ensure_pool()
+    conn = await _pg_pool.acquire()
+    try:
+        for stmt in _PG_SCHEMA.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                await conn.execute(stmt)
+        # Idempotent column additions — safe to re-run on each startup
+        for sql in (
+            "ALTER TABLE emails ADD COLUMN IF NOT EXISTS message_id TEXT",
+            "ALTER TABLE emails ADD COLUMN IF NOT EXISTS opened_at TEXT",
+            "ALTER TABLE emails ADD COLUMN IF NOT EXISTS clicked_at TEXT",
+            "ALTER TABLE prospects ADD COLUMN IF NOT EXISTS unsubscribed_at TEXT",
+        ):
+            try:
+                await conn.execute(sql)
+            except Exception:
+                pass  # Column already exists — that's fine
+    finally:
+        await _pg_pool.release(conn)
+
+
+async def _migrate(db: _Conn) -> None:
+    """Apply schema migrations to existing SQLite DBs without dropping data."""
+    if USE_PG:
+        return  # Handled by _init_pg
     email_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(emails)")}
     prospect_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(prospects)")}
 
@@ -72,7 +328,7 @@ async def _migrate(db: aiosqlite.Connection) -> None:
         await db.commit()
 
 
-# ─── Campaigns ───────────────────────────────────────────────
+# ─── Campaigns ───────────────────────────────────────────────────────────────
 
 async def create_campaign(data: dict) -> dict:
     db = await get_db()
@@ -122,11 +378,11 @@ async def list_campaigns() -> list[dict]:
 async def update_campaign(cid: str, updates: dict) -> dict | None:
     db = await get_db()
     try:
-        sets = []
-        vals = []
+        sets: list[str] = []
+        vals: list = []
         for key in ("name", "autonomy", "status", "dry_run",
-                     "company_name", "company_url", "company_description",
-                     "ideal_customer_profile", "cv_text", "desired_role"):
+                    "company_name", "company_url", "company_description",
+                    "ideal_customer_profile", "cv_text", "desired_role"):
             if key in updates:
                 val = updates[key]
                 if key == "ideal_customer_profile" and isinstance(val, dict):
@@ -150,21 +406,17 @@ async def update_campaign(cid: str, updates: dict) -> dict | None:
 async def delete_campaign(cid: str) -> bool:
     db = await get_db()
     try:
-        cursor = await db.execute("DELETE FROM campaigns WHERE id = ?", (cid,))
+        result = await db.execute("DELETE FROM campaigns WHERE id = ?", (cid,))
         await db.commit()
-        return cursor.rowcount > 0
+        return result.rowcount > 0
     finally:
         await db.close()
 
 
-# ─── Global suppression checks ──────────────────────────────
+# ─── Global suppression checks ───────────────────────────────────────────────
 
 async def is_opted_out(email: str) -> bool:
-    """Return True if this email address has ever opted out from any campaign.
-
-    Used as a global suppression check before sending to ensure we never
-    email someone who unsubscribed, regardless of which campaign they're in.
-    """
+    """Return True if this address has ever opted out from any campaign."""
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
@@ -177,27 +429,26 @@ async def is_opted_out(email: str) -> bool:
 
 
 async def was_recently_contacted(email: str, within_days: int = 30) -> bool:
-    """Return True if we sent an email to this address within the last N days.
-
-    Prevents hammering the same person from multiple campaigns.
-    """
+    """Return True if we sent an email to this address within the last N days."""
     db = await get_db()
     try:
+        # Pre-compute threshold in Python — avoids SQLite/Postgres datetime function differences
+        threshold = (datetime.utcnow() - timedelta(days=within_days)).strftime("%Y-%m-%d %H:%M:%S")
         rows = await db.execute_fetchall(
             """SELECT e.id FROM emails e
                JOIN prospects p ON p.id = e.prospect_id
                WHERE LOWER(p.contact_email) = LOWER(?)
                  AND e.status = 'sent'
-                 AND e.sent_at >= datetime('now', ? || ' days')
+                 AND e.sent_at >= ?
                LIMIT 1""",
-            (email, f"-{within_days}"),
+            (email, threshold),
         )
         return len(rows) > 0
     finally:
         await db.close()
 
 
-# ─── Prospects ───────────────────────────────────────────────
+# ─── Prospects ───────────────────────────────────────────────────────────────
 
 async def create_prospect(data: dict) -> dict:
     db = await get_db()
@@ -243,11 +494,11 @@ async def list_prospects(campaign_id: str) -> list[dict]:
 async def update_prospect(pid: str, updates: dict) -> dict | None:
     db = await get_db()
     try:
-        sets = []
-        vals = []
+        sets: list[str] = []
+        vals: list = []
         for key in ("contact_name", "contact_email", "contact_role",
-                     "email_source", "email_verified", "research_notes",
-                     "unsubscribed_at", "status"):
+                    "email_source", "email_verified", "research_notes",
+                    "unsubscribed_at", "status"):
             if key in updates:
                 val = updates[key]
                 if key == "research_notes" and isinstance(val, dict):
@@ -268,7 +519,7 @@ async def update_prospect(pid: str, updates: dict) -> dict | None:
         await db.close()
 
 
-# ─── Emails ──────────────────────────────────────────────────
+# ─── Emails ──────────────────────────────────────────────────────────────────
 
 async def create_email(data: dict) -> dict:
     db = await get_db()
@@ -329,11 +580,11 @@ async def list_emails_by_status(status: str) -> list[dict]:
 async def update_email(eid: str, updates: dict) -> dict | None:
     db = await get_db()
     try:
-        sets = []
-        vals = []
+        sets: list[str] = []
+        vals: list = []
         for key in ("status", "sent_at", "replied_at", "opened_at", "clicked_at",
-                     "bounce_reason", "subject", "body_html", "body_text",
-                     "personalisation_points", "message_id"):
+                    "bounce_reason", "subject", "body_html", "body_text",
+                    "personalisation_points", "message_id"):
             if key in updates:
                 val = updates[key]
                 if key == "personalisation_points" and isinstance(val, list):
@@ -368,7 +619,7 @@ async def list_sent_emails_with_message_ids() -> list[dict]:
 
 
 async def list_all_sent_emails() -> list[dict]:
-    """Return all sent emails (with or without message_id) — broader reply matching fallback."""
+    """Return all sent emails (with or without message_id) — broader reply-matching fallback."""
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
@@ -383,7 +634,7 @@ async def list_all_sent_emails() -> list[dict]:
 
 
 async def mark_replied(email_id: str, prospect_id: str) -> None:
-    """Mark an email and its prospect as replied. Idempotent."""
+    """Mark an email and its prospect as replied. Cancels pending follow-ups. Idempotent."""
     db = await get_db()
     try:
         ts = now_iso()
@@ -395,7 +646,6 @@ async def mark_replied(email_id: str, prospect_id: str) -> None:
             "UPDATE prospects SET status = 'replied', updated_at = ? WHERE id = ?",
             (ts, prospect_id),
         )
-        # Cancel any pending follow-ups for this prospect
         await db.execute(
             "UPDATE followup_schedule SET status = 'cancelled' WHERE prospect_id = ? AND status = 'pending'",
             (prospect_id,),
@@ -449,7 +699,7 @@ async def mark_unsubscribed(prospect_id: str) -> None:
         await db.close()
 
 
-# ─── Follow-up Schedule ─────────────────────────────────────
+# ─── Follow-up Schedule ──────────────────────────────────────────────────────
 
 async def create_followup(data: dict) -> dict:
     db = await get_db()
@@ -474,10 +724,13 @@ async def create_followup(data: dict) -> dict:
 async def get_due_followups() -> list[dict]:
     db = await get_db()
     try:
+        # Use Python-computed now() to avoid SQLite/Postgres datetime function differences
+        now = now_iso()
         rows = await db.execute_fetchall(
             """SELECT * FROM followup_schedule
-               WHERE status = 'pending' AND scheduled_for <= datetime('now')
+               WHERE status = 'pending' AND scheduled_for <= ?
                ORDER BY scheduled_for""",
+            (now,),
         )
         return [dict(r) for r in rows]
     finally:
@@ -496,7 +749,7 @@ async def update_followup(fid: str, status: str) -> None:
         await db.close()
 
 
-# ─── Action Log ──────────────────────────────────────────────
+# ─── Action Log ──────────────────────────────────────────────────────────────
 
 async def log_action(
     action: str,
@@ -542,7 +795,7 @@ async def list_actions(
         await db.close()
 
 
-# ─── Daily Send Log ─────────────────────────────────────────
+# ─── Daily Send Log ──────────────────────────────────────────────────────────
 
 async def get_daily_send_count() -> tuple[int, int]:
     """Returns (sent_today, limit_for_today)."""
@@ -555,7 +808,8 @@ async def get_daily_send_count() -> tuple[int, int]:
         )
         if rows:
             return rows[0]["count"], rows[0]["limit_for_day"]
-        # First send ever or new day — insert with default limit
+        # First send ever or new day — insert with default limit (INSERT OR IGNORE
+        # is converted to ON CONFLICT DO NOTHING by _Conn._adapt for Postgres)
         await db.execute(
             "INSERT OR IGNORE INTO daily_send_log (date, count, limit_for_day) VALUES (?, 0, 5)",
             (today,),
@@ -596,7 +850,7 @@ async def set_daily_limit(limit: int) -> None:
         await db.close()
 
 
-# ─── Stats ───────────────────────────────────────────────────
+# ─── Stats ───────────────────────────────────────────────────────────────────
 
 async def get_stats() -> dict:
     db = await get_db()
