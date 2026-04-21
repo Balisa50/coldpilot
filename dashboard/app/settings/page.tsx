@@ -2,59 +2,35 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { Settings, DnsCheckResult } from "../lib/types";
+import type { Settings } from "../lib/types";
 import WakeUp from "../components/WakeUp";
+
+function StatusBadge({ ok }: { ok: boolean }) {
+  return ok ? (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green bg-green/10 px-2.5 py-1 rounded-full">
+      <span className="w-1.5 h-1.5 rounded-full bg-green" /> Ready
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red bg-red/10 px-2.5 py-1 rounded-full">
+      <span className="w-1.5 h-1.5 rounded-full bg-red" /> Not configured
+    </span>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
-
-  // SMTP form
-  const [gmailAddress, setGmailAddress] = useState("");
-  const [appPassword, setAppPassword] = useState("");
-  const [savingSmtp, setSavingSmtp] = useState(false);
-  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  // Test
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-
-  // DNS check
-  const [checkingDns, setCheckingDns] = useState(false);
-  const [dnsResult, setDnsResult] = useState<DnsCheckResult | null>(null);
 
   useEffect(() => {
     api
       .getSettings()
-      .then((s) => {
-        setSettings(s);
-        setReady(true);
-        if (s.smtp_user) setGmailAddress(s.smtp_user);
-      })
+      .then((s) => { setSettings(s); setReady(true); })
       .catch(() => setReady(false))
       .finally(() => setLoading(false));
   }, []);
-
-  async function handleSave() {
-    if (!gmailAddress.trim()) return;
-    setSavingSmtp(true);
-    setSaveResult(null);
-    try {
-      await api.updateSettings({
-        smtp_user: gmailAddress.trim(),
-        smtp_pass: appPassword.trim() || undefined,
-        sender_email: gmailAddress.trim(),
-      });
-      const s = await api.getSettings();
-      setSettings(s);
-      setSaveResult({ ok: true, message: "Email settings saved." });
-      setAppPassword("");
-    } catch (err) {
-      setSaveResult({ ok: false, message: err instanceof Error ? err.message : "Failed to save" });
-    }
-    setSavingSmtp(false);
-  }
 
   async function handleTest() {
     setTesting(true);
@@ -66,18 +42,6 @@ export default function SettingsPage() {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : "Connection failed" });
     }
     setTesting(false);
-  }
-
-  async function handleCheckDns() {
-    setCheckingDns(true);
-    setDnsResult(null);
-    try {
-      const res = await api.checkDns();
-      setDnsResult(res);
-    } catch (err) {
-      setDnsResult({ ok: false, domain: "", spf: { ok: false, record: "" }, dmarc: { ok: false, record: "" }, warnings: [], advice: "", error: err instanceof Error ? err.message : "DNS check failed" });
-    }
-    setCheckingDns(false);
   }
 
   if (!ready && !loading) {
@@ -92,156 +56,108 @@ export default function SettingsPage() {
     );
   }
 
+  const allReady = settings?.smtp_configured && settings?.groq_configured && settings?.tavily_configured;
+
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">Settings</h1>
-      <p className="text-text-muted text-sm mb-6">Configure your email to start sending outreach.</p>
+      <p className="text-sm text-text-muted mb-6">Service status for this ColdPilot instance.</p>
 
-      <section className="bg-surface rounded-xl border border-border p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Email Setup</h2>
-          {settings?.smtp_configured && (
-            <span className="text-xs px-3 py-1 rounded-full font-medium bg-green/15 text-green">
-              Email Connected
-            </span>
-          )}
+      {/* Overall status */}
+      <div className={`rounded-xl border p-4 mb-6 ${allReady ? "bg-green/5 border-green/20" : "bg-amber-400/5 border-amber-400/20"}`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${allReady ? "bg-green" : "bg-amber-400"}`} />
+          <p className={`text-sm font-medium ${allReady ? "text-green" : "text-amber-400"}`}>
+            {allReady ? "All systems ready — campaigns can send." : "Some services not configured — check below."}
+          </p>
         </div>
+      </div>
 
-        {!settings?.smtp_configured && (
-          <div className="bg-accent/5 border border-accent/20 rounded-lg p-3 mb-5">
-            <p className="text-sm text-text-secondary">
-              To send emails, enter your Gmail address and an App Password.
-              Generate one at Google Account &rarr; Security &rarr; 2-Step Verification &rarr; App Passwords.
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          <label className="block">
-            <span className="text-sm text-text-secondary">Gmail Address</span>
-            <input
-              className="input mt-1"
-              type="email"
-              placeholder="you@gmail.com"
-              value={gmailAddress}
-              onChange={(e) => setGmailAddress(e.target.value)}
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-sm text-text-secondary">App Password</span>
-            <input
-              className="input mt-1"
-              type="password"
-              placeholder="xxxx xxxx xxxx xxxx"
-              value={appPassword}
-              onChange={(e) => setAppPassword(e.target.value)}
-            />
-            {settings?.smtp_configured && !appPassword && (
-              <p className="text-xs text-text-muted mt-1">Leave blank to keep existing password</p>
-            )}
-          </label>
-
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={handleSave}
-              disabled={savingSmtp || !gmailAddress.trim()}
-              className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm px-5 py-2.5 rounded-lg transition-colors"
-            >
-              {savingSmtp ? "Saving..." : "Save"}
-            </button>
-
-            <button
-              onClick={handleTest}
-              disabled={testing || !settings?.smtp_configured}
-              className="bg-surface-elevated hover:bg-border disabled:opacity-50 text-text-primary text-sm px-5 py-2.5 rounded-lg border border-border transition-colors"
-            >
-              {testing ? "Testing..." : "Test Connection"}
-            </button>
-          </div>
-
-          {saveResult && (
-            <div className={`p-3 rounded-lg text-sm ${saveResult.ok ? "bg-green/10 text-green" : "bg-red/10 text-red"}`}>
-              {saveResult.message}
-            </div>
-          )}
-
-          {testResult && (
-            <div className={`p-3 rounded-lg text-sm ${testResult.ok ? "bg-green/10 text-green" : "bg-red/10 text-red"}`}>
-              {testResult.ok ? "Connection successful — emails are ready to send." : testResult.message}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* DNS deliverability check */}
-      {settings?.smtp_configured && (
-        <section className="bg-surface rounded-xl border border-border p-6 mt-6">
-          <div className="flex items-center justify-between mb-3">
+      {/* Service status cards */}
+      <div className="space-y-3">
+        {/* Email */}
+        <div className="bg-surface rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between mb-2">
             <div>
-              <h2 className="text-lg font-semibold">Deliverability Check</h2>
+              <p className="text-sm font-semibold">Email (SMTP)</p>
               <p className="text-xs text-text-muted mt-0.5">
-                Verify SPF &amp; DMARC records so emails don&apos;t land in spam.
+                {settings?.smtp_user ? `Sending from ${settings.smtp_user}` : "Gmail credentials — set SMTP_USER and SMTP_APP_PASSWORD on Render"}
               </p>
             </div>
-            <button
-              onClick={handleCheckDns}
-              disabled={checkingDns}
-              className="bg-surface-elevated hover:bg-border disabled:opacity-50 text-text-primary text-sm px-4 py-2 rounded-lg border border-border transition-colors"
-            >
-              {checkingDns ? "Checking..." : "Run Check"}
-            </button>
+            <StatusBadge ok={!!settings?.smtp_configured} />
           </div>
 
-          {dnsResult && (
-            <div className="mt-4 space-y-3">
-              {dnsResult.error ? (
-                <p className="text-sm text-red bg-red/10 rounded-lg p-3">{dnsResult.error}</p>
-              ) : (
-                <>
-                  <div className={`flex items-start gap-3 p-3 rounded-lg ${dnsResult.spf.ok ? "bg-green/8" : "bg-amber/8"}`}>
-                    <span className={`text-base mt-0.5 ${dnsResult.spf.ok ? "text-green" : "text-amber"}`}>
-                      {dnsResult.spf.ok ? "✓" : "⚠"}
-                    </span>
-                    <div>
-                      <p className={`text-sm font-medium ${dnsResult.spf.ok ? "text-green" : "text-amber"}`}>
-                        SPF {dnsResult.spf.ok ? "configured" : "missing"}
-                      </p>
-                      {dnsResult.spf.record && (
-                        <p className="text-xs text-text-muted font-mono mt-0.5 break-all">{dnsResult.spf.record}</p>
-                      )}
-                      {dnsResult.spf.warning && (
-                        <p className="text-xs text-amber mt-1">{dnsResult.spf.warning}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className={`flex items-start gap-3 p-3 rounded-lg ${dnsResult.dmarc.ok ? "bg-green/8" : "bg-amber/8"}`}>
-                    <span className={`text-base mt-0.5 ${dnsResult.dmarc.ok ? "text-green" : "text-amber"}`}>
-                      {dnsResult.dmarc.ok ? "✓" : "⚠"}
-                    </span>
-                    <div>
-                      <p className={`text-sm font-medium ${dnsResult.dmarc.ok ? "text-green" : "text-amber"}`}>
-                        DMARC {dnsResult.dmarc.ok ? "configured" : "missing"}
-                      </p>
-                      {dnsResult.dmarc.record && (
-                        <p className="text-xs text-text-muted font-mono mt-0.5 break-all">{dnsResult.dmarc.record}</p>
-                      )}
-                      {dnsResult.dmarc.warning && (
-                        <p className="text-xs text-amber mt-1">{dnsResult.dmarc.warning}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <p className={`text-sm p-3 rounded-lg ${dnsResult.ok ? "bg-green/10 text-green" : "bg-amber/10 text-amber"}`}>
-                    {dnsResult.advice}
-                  </p>
-                </>
+          {settings?.smtp_configured && (
+            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border">
+              <button
+                onClick={handleTest}
+                disabled={testing}
+                className="text-xs bg-surface-elevated hover:bg-border border border-border px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {testing ? "Testing..." : "Test connection"}
+              </button>
+              {testResult && (
+                <p className={`text-xs ${testResult.ok ? "text-green" : "text-red"}`}>
+                  {testResult.ok ? "Connection successful" : testResult.message}
+                </p>
               )}
             </div>
           )}
-        </section>
-      )}
+
+          {!settings?.smtp_configured && (
+            <div className="mt-3 pt-3 border-t border-border">
+              <p className="text-xs text-text-muted">
+                Go to your{" "}
+                <a href="https://render.com/dashboard" target="_blank" rel="noreferrer" className="text-accent underline">
+                  Render dashboard
+                </a>
+                {" "}→ coldpilot-api → Environment → add:
+              </p>
+              <div className="mt-2 font-mono text-xs bg-background rounded-lg p-3 space-y-1">
+                <p><span className="text-text-muted">SMTP_USER</span> = your-gmail@gmail.com</p>
+                <p><span className="text-text-muted">SMTP_APP_PASSWORD</span> = xxxx-xxxx-xxxx-xxxx</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Groq */}
+        <div className="bg-surface rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Groq (LLM)</p>
+              <p className="text-xs text-text-muted mt-0.5">Writes personalised emails — set GROQ_API_KEY on Render</p>
+            </div>
+            <StatusBadge ok={!!settings?.groq_configured} />
+          </div>
+        </div>
+
+        {/* Tavily */}
+        <div className="bg-surface rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Tavily (Research)</p>
+              <p className="text-xs text-text-muted mt-0.5">Company research before writing — set TAVILY_API_KEY on Render</p>
+            </div>
+            <StatusBadge ok={!!settings?.tavily_configured} />
+          </div>
+        </div>
+
+        {/* Hunter */}
+        <div className="bg-surface rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Hunter.io (Contact Finder)</p>
+              <p className="text-xs text-text-muted mt-0.5">Finds email addresses for Hunter mode — set HUNTER_API_KEY on Render</p>
+            </div>
+            <StatusBadge ok={!!settings?.hunter_configured} />
+          </div>
+        </div>
+      </div>
+
+      <p className="text-xs text-text-muted text-center mt-6">
+        All credentials are managed on Render — never entered here. Users never see or configure API keys.
+      </p>
     </div>
   );
 }

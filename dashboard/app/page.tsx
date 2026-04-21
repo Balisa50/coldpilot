@@ -51,12 +51,6 @@ export default function NewCampaignPage() {
   const [prospects, setProspects] = useState<ProspectRow[]>([{ ...EMPTY_ROW }]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // ── SMTP check ──
-  const [smtpConfigured, setSmtpConfigured] = useState<boolean | null>(null);
-  useEffect(() => {
-    api.getSettings().then((s) => setSmtpConfigured(s.smtp_configured)).catch(() => setSmtpConfigured(false));
-  }, []);
-
   // ── Live feed state ──
   const [launched, setLaunched] = useState(false);
   const [campaignId, setCampaignId] = useState<string | null>(null);
@@ -587,24 +581,6 @@ export default function NewCampaignPage() {
         </p>
       </div>
 
-      {/* SMTP warning — shown when not in dry run and SMTP isn't set up */}
-      {smtpConfigured === false && !dryRun && (
-        <div className="flex items-start gap-3 bg-amber-400/10 border border-amber-400/30 rounded-xl px-4 py-3 mb-4">
-          <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86l-8.4 14.31A1 1 0 002.72 20h18.56a1 1 0 00.85-1.47l-8.4-14.31a1.02 1.02 0 00-1.74 0z" />
-          </svg>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-amber-400">SMTP not configured — emails won&apos;t send</p>
-            <p className="text-xs text-text-muted mt-0.5">
-              Go to{" "}
-              <a href="/settings" className="text-accent underline">Settings</a>
-              {" "}and add your Gmail address + App Password before launching a live campaign.
-              Or enable <strong className="text-text-secondary">Dry Run</strong> to test without sending.
-            </p>
-          </div>
-        </div>
-      )}
-
       <form onSubmit={handleLaunch} className="space-y-6">
         {/* Mode toggle */}
         <div className="grid grid-cols-2 gap-4">
@@ -896,10 +872,10 @@ export default function NewCampaignPage() {
         {/* Launch */}
         <button
           type="submit"
-          disabled={saving || (!dryRun && smtpConfigured === false)}
+          disabled={saving}
           className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition-colors"
         >
-          {saving ? "Launching..." : !dryRun && smtpConfigured === false ? "Configure SMTP in Settings first" : "Launch Campaign"}
+          {saving ? "Launching..." : "Launch Campaign"}
         </button>
       </form>
     </div>
