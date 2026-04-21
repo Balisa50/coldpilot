@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Target, Briefcase } from "lucide-react";
 import { api } from "./lib/api";
 import type {
   CampaignMode,
@@ -10,6 +11,9 @@ import type {
   PipelineEvent,
   Email,
 } from "./lib/types";
+
+const CV_TEXT_KEY = "coldpilot:cv:text";
+const CV_NAME_KEY = "coldpilot:cv:name";
 
 // ── Prospect Row type ──
 interface ProspectRow {
@@ -46,6 +50,7 @@ export default function NewCampaignPage() {
   // Seeker
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvText, setCvText] = useState("");
+  const [cvFileName, setCvFileName] = useState<string | null>(null);
   const [cvUploading, setCvUploading] = useState(false);
   const [desiredRole, setDesiredRole] = useState("");
   const [prospects, setProspects] = useState<ProspectRow[]>([{ ...EMPTY_ROW }]);
@@ -80,6 +85,16 @@ export default function NewCampaignPage() {
       }
     } catch {}
     setHydrated(true);
+  }, []);
+
+  // ── Load saved CV from localStorage on mount ──
+  useEffect(() => {
+    try {
+      const savedText = localStorage.getItem(CV_TEXT_KEY);
+      const savedName = localStorage.getItem(CV_NAME_KEY);
+      if (savedText) setCvText(savedText);
+      if (savedName) setCvFileName(savedName);
+    } catch {}
   }, []);
 
   // ── Persist campaign state to sessionStorage ──
@@ -123,28 +138,48 @@ export default function NewCampaignPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setCvFile(file);
+    setCvFileName(file.name);
     setCvUploading(true);
     setError("");
     try {
       const isPdf =
         file.type === "application/pdf" ||
         file.name.toLowerCase().endsWith(".pdf");
+      let parsed = "";
       if (isPdf) {
         // PDFs are binary — we MUST parse them server-side, never via file.text()
         const result = await api.parseCv(file);
-        setCvText(result.text);
+        parsed = result.text;
       } else {
         // Plain text / markdown CVs are safe to read directly
         const text = await file.text();
-        setCvText(text.slice(0, 8000));
+        parsed = text.slice(0, 8000);
       }
+      setCvText(parsed);
+      // Persist so CV survives logout / page refresh
+      try {
+        localStorage.setItem(CV_TEXT_KEY, parsed);
+        localStorage.setItem(CV_NAME_KEY, file.name);
+      } catch {}
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to read CV";
       setError(`CV upload failed: ${msg}`);
       setCvFile(null);
+      setCvFileName(null);
       setCvText("");
     }
     setCvUploading(false);
+  }
+
+  function handleCvClear() {
+    setCvFile(null);
+    setCvFileName(null);
+    setCvText("");
+    try {
+      localStorage.removeItem(CV_TEXT_KEY);
+      localStorage.removeItem(CV_NAME_KEY);
+    } catch {}
+    if (fileRef.current) fileRef.current.value = "";
   }
 
   // ── Add feed item ──
@@ -211,7 +246,7 @@ export default function NewCampaignPage() {
             if (role) parts.push(String(role));
             if (company && !name && !role) parts.push(`at ${company}`);
             const who = parts.length > 0 ? parts.join(", ") : "contact";
-            const msg = email ? `Found ${who} -- ${email}` : `Found ${who}`;
+            const msg = email ? `Found ${who} (${email})` : `Found ${who}`;
             addFeed(msg, "success");
             break;
           }
@@ -231,7 +266,7 @@ export default function NewCampaignPage() {
             break;
           case "email_drafted":
             if (autonomy === "copilot" && data.email_id) {
-              addFeed("Email drafted -- awaiting your approval", "action");
+              addFeed("Email drafted, awaiting your approval", "action");
               api.getEmail(data.email_id as string).then((email) => {
                 setPendingEmail(email);
                 setEditingBody(email.body_text);
@@ -247,7 +282,7 @@ export default function NewCampaignPage() {
             addFeed("Could not find contact", "warn");
             break;
           case "contact_skipped":
-            addFeed(data.reason as string || "Contact skipped — unverified address", "warn");
+            addFeed(data.reason as string || "Contact skipped: unverified address", "warn");
             break;
           case "campaign_auto_paused":
             addFeed(`Campaign auto-paused: ${data.reason as string || "bounce rate threshold exceeded"}`, "error");
@@ -258,7 +293,7 @@ export default function NewCampaignPage() {
             break;
           case "dry_run_skip":
           case "dry_run_skip_send":
-            addFeed("Dry run — email skipped (not sent)", "warn");
+            addFeed("Dry run: email skipped (not sent)", "warn");
             break;
           case "email_approved":
             addFeed("Email approved", "success");
@@ -279,7 +314,7 @@ export default function NewCampaignPage() {
             setStreamDone(true);
             break;
           case "daily_limit_reached":
-            addFeed("Daily send limit reached — remaining emails are queued for tomorrow.", "warn");
+            addFeed("Daily send limit reached. Remaining emails are queued for tomorrow.", "warn");
             break;
           case "send_failed":
             addFeed(`Send failed: ${data.error || "unknown reason"}`, "error");
@@ -291,7 +326,7 @@ export default function NewCampaignPage() {
             addFeed(`Error: ${data.detail || data.message || "unknown"}`, "error");
             break;
           case "followup_scheduled":
-            addFeed(`Follow-up #${(data.followup_number as number) ?? 1} scheduled — sends in 3 days`, "info");
+            addFeed(`Follow-up #${(data.followup_number as number) ?? 1} scheduled, sends in 3 days`, "info");
             break;
           case "campaign_started":
             // Silent — we already announced this
@@ -375,7 +410,7 @@ export default function NewCampaignPage() {
       addFeed("Campaign created. Starting...", "info");
 
       await api.startCampaign(campaign.id);
-      addFeed("Campaign started -- connecting to live stream...", "success");
+      addFeed("Campaign started. Connecting to live stream...", "success");
 
       setLaunched(true);
     } catch (err) {
@@ -390,7 +425,7 @@ export default function NewCampaignPage() {
     setApproving(true);
     try {
       await api.approveEmail(pendingEmail.id);
-      addFeed("Email approved -- sending...", "success");
+      addFeed("Email approved. Sending...", "success");
       setPendingEmail(null);
     } catch {
       addFeed("Failed to approve email", "error");
@@ -555,22 +590,22 @@ export default function NewCampaignPage() {
         <p className="text-xs text-text-muted uppercase tracking-wider font-medium mb-3">How to use ColdPilot</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-text-secondary">
           <div className="space-y-2">
-            <p className="font-semibold text-text-primary">🎯 Hunter Mode</p>
+            <p className="font-semibold text-text-primary flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Hunter Mode</p>
             <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
               <li>Enter your company name and what you do</li>
               <li>Set your target industry and job title (who you want to reach)</li>
               <li>Choose autonomy level (Copilot = you approve each email)</li>
-              <li>Launch — ColdPilot finds contacts, researches them, writes personalised emails</li>
+              <li>Launch: ColdPilot finds contacts, researches them and writes personalised emails</li>
               <li>Check <strong className="text-text-secondary">Inbox</strong> to approve or edit drafts</li>
             </ol>
           </div>
           <div className="space-y-2">
-            <p className="font-semibold text-text-primary">💼 Seeker Mode</p>
+            <p className="font-semibold text-text-primary flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> Seeker Mode</p>
             <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
               <li>Upload your CV and set your desired role</li>
               <li>Add target companies (name, domain, contact name/email if known)</li>
               <li>Choose autonomy level</li>
-              <li>Launch — ColdPilot writes tailored job-application emails for each company</li>
+              <li>Launch: ColdPilot writes tailored job-application emails for each company</li>
               <li>Check <strong className="text-text-secondary">Campaigns</strong> to track status and open rates</li>
             </ol>
           </div>
@@ -677,10 +712,19 @@ export default function NewCampaignPage() {
                 />
                 {cvUploading ? (
                   <p className="text-sm text-accent animate-pulse">Reading your CV...</p>
-                ) : cvFile ? (
+                ) : (cvFile || cvFileName) ? (
                   <div>
-                    <p className="text-sm text-accent font-medium">{cvFile.name}</p>
-                    <p className="text-xs text-text-muted mt-1">Click to replace</p>
+                    <p className="text-sm text-accent font-medium">{cvFileName ?? cvFile?.name}</p>
+                    <div className="flex items-center justify-center gap-3 mt-1">
+                      <p className="text-xs text-text-muted">Click to replace</p>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleCvClear(); }}
+                        className="text-xs text-text-muted hover:text-red transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div>

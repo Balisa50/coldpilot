@@ -9,9 +9,32 @@ Falls back to email pattern guessing when Hunter.io quota runs out.
 from __future__ import annotations
 
 import asyncio
+import re
 import dns.resolver
 from backend.services import hunter
 from backend import db
+
+
+# ── Name sanity helpers ──────────────────────────────────────────────────────
+
+_PHONE_RE = re.compile(r"^[\+\d\s\-\(\)\.]{7,}$")
+
+def _is_valid_name(name: str | None) -> bool:
+    """Return False if name looks like a phone number, email, or is blank."""
+    if not name or not name.strip():
+        return False
+    n = name.strip()
+    # Reject if it looks like a phone number (digits, +, spaces, dashes, parens)
+    if _PHONE_RE.match(n):
+        return False
+    # Reject if it looks like an email address
+    if "@" in n:
+        return False
+    # Reject if more than 50% of non-space characters are digits
+    non_space = n.replace(" ", "")
+    if non_space and sum(c.isdigit() for c in non_space) / len(non_space) > 0.4:
+        return False
+    return True
 
 
 # Common email patterns for fallback guessing
@@ -75,8 +98,9 @@ async def find_contacts_hunter_mode(
     results.sort(key=score, reverse=True)
     best = results[0]
 
+    raw_name = f"{best.get('first_name', '')} {best.get('last_name', '')}".strip()
     return {
-        "contact_name": f"{best.get('first_name', '')} {best.get('last_name', '')}".strip(),
+        "contact_name": raw_name if _is_valid_name(raw_name) else None,
         "contact_email": best["email"],
         "contact_role": best.get("position", ""),
         "email_source": "hunter",
@@ -152,8 +176,9 @@ async def find_contacts_seeker_mode(
     results.sort(key=score, reverse=True)
     best = results[0]
 
+    raw_name = f"{best.get('first_name', '')} {best.get('last_name', '')}".strip()
     return {
-        "contact_name": f"{best.get('first_name', '')} {best.get('last_name', '')}".strip(),
+        "contact_name": raw_name if _is_valid_name(raw_name) else None,
         "contact_email": best["email"],
         "contact_role": best.get("position", ""),
         "email_source": "hunter",
@@ -169,7 +194,7 @@ async def find_contact_fallback(
     """
     Fallback: guess email patterns. Only works if we have a name.
     """
-    if not contact_name or not company_domain:
+    if not _is_valid_name(contact_name) or not company_domain:
         return None
 
     if not _domain_has_mx(company_domain):

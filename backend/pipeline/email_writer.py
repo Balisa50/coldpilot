@@ -36,6 +36,11 @@ Structure of a great one:
 
 Length: fits the message. 3-5 sentences is often enough. Never pad.
 
+CRITICAL — facts and hallucination:
+- ONLY use facts that appear in the research notes provided. Do NOT invent dollar amounts, revenue figures, headcounts, funding rounds, product names, or news items.
+- If a specific fact isn't in the research, do NOT include it. Use what's there.
+- Never write things like "Google recently invested $30M" or any figure you haven't been given. If you weren't told it, it did not happen.
+
 Banned phrases — any email containing these fails:
 "I hope this email finds you well"
 "I wanted to reach out"
@@ -67,6 +72,12 @@ Structure of a great one:
 4. Ask for a call. One sentence. That's it.
 
 Length: as short as the message allows. Never pad. If the value is clear in 4 sentences, write 4 sentences. 3 tight paragraphs is fine if each one earns its place.
+
+CRITICAL — facts and hallucination:
+- Company facts must come ONLY from the research notes provided. Do not invent any company activity, product, news, or milestone.
+- CV facts must come ONLY from the CV text provided. Do not invent degrees, companies, projects, or metrics.
+- If the CV says the seeker's name is "Abdoulie", sign off as "Abdoulie" — never invent a different name.
+- Never mention any figure, statistic, or event you weren't explicitly given.
 
 Banned phrases — any email containing these fails:
 "I came across your company and was impressed"
@@ -251,7 +262,23 @@ Write the cold outreach email. Reference at least one SPECIFIC research fact."""
 
         result = _parse_email_output(response)
         if result and result.get("personalisation_points"):
-            return result
+            # Sanity: reject if body contains suspicious invented stats
+            # (dollar/million/billion figures not present in research notes)
+            body = result.get("body_text", "")
+            research_str = json.dumps(research_notes)
+            import re as _re2
+            invented = False
+            for m in _re2.findall(r"\$[\d,]+[MBK]?|\d+[\s]?(?:million|billion|M|B)\s*(?:dollar|USD|\$)?", body, _re2.IGNORECASE):
+                # If the figure doesn't appear in the research text, flag it
+                stripped = _re2.sub(r"[\s,]", "", m).lower()
+                if stripped not in research_str.lower():
+                    invented = True
+                    break
+            if not invented:
+                return result
+            # Retry with a stronger hallucination warning
+            user_prompt = user_prompt + "\n\nCRITICAL: Your previous draft contained statistics or dollar figures not found in the research. Use ONLY facts explicitly listed in the research notes. No invented numbers."
+            continue
         # Parse succeeded but missing personalisation — retry with nudge.
         # If parse failed entirely, also retry in case it was a one-off
         # format glitch.
