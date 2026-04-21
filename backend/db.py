@@ -245,6 +245,9 @@ async def _ensure_pool() -> None:
     global _pg_pool
     if _pg_pool is None:
         kwargs: dict = {"min_size": 1, "max_size": 5}
+        # Supabase and most managed Postgres providers require SSL.
+        # asyncpg accepts ssl='require' directly.
+        kwargs["ssl"] = "require"
         # PgBouncer (Supabase pooler uses port 6543) does not support
         # prepared statements — disable the statement cache for those URLs.
         if "pgbouncer" in DATABASE_URL.lower() or ":6543/" in DATABASE_URL:
