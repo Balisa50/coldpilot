@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import uuid
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 # ─── Backend detection ───────────────────────────────────────────────────────
 DATABASE_URL: str = os.getenv("DATABASE_URL", "")
@@ -240,19 +242,49 @@ class _Conn:
 
 # ─── Connection factory ───────────────────────────────────────────────────────
 
+def _pg_connect_kwargs() -> dict:
+    """
+    Build asyncpg connection kwargs from DATABASE_URL.
+
+    Forces IPv4 so Render (no IPv6) can reach Supabase.
+    Supabase direct hosts sometimes resolve to IPv6 first — asyncpg then gets
+    'Network is unreachable' because Render's network has no IPv6 route.
+    """
+    parsed = urlparse(DATABASE_URL)
+    hostname = parsed.hostname or ""
+    port     = parsed.port or 5432
+
+    # Resolve hostname to an IPv4 address; fall back to the raw hostname if
+    # resolution fails (e.g. in local dev where IPv6 works fine).
+    ipv4_host = hostname
+    try:
+        infos = socket.getaddrinfo(hostname, port, socket.AF_INET)
+        if infos:
+            ipv4_host = infos[0][4][0]
+    except Exception:
+        pass
+
+    kwargs: dict = {
+        "host":     ipv4_host,
+        "port":     port,
+        "user":     parsed.username or "postgres",
+        "password": parsed.password or "",
+        "database": (parsed.path or "/postgres").lstrip("/") or "postgres",
+        "ssl":      "require",
+        "min_size": 1,
+        "max_size": 5,
+    }
+    # PgBouncer (Supabase pooler port 6543) doesn't support prepared statements
+    if "pgbouncer" in DATABASE_URL.lower() or ":6543/" in DATABASE_URL:
+        kwargs["statement_cache_size"] = 0
+    return kwargs
+
+
 async def _ensure_pool() -> None:
     """Lazily initialise the asyncpg connection pool (called before every PG op)."""
     global _pg_pool
     if _pg_pool is None:
-        kwargs: dict = {"min_size": 1, "max_size": 5}
-        # Supabase and most managed Postgres providers require SSL.
-        # asyncpg accepts ssl='require' directly.
-        kwargs["ssl"] = "require"
-        # PgBouncer (Supabase pooler uses port 6543) does not support
-        # prepared statements — disable the statement cache for those URLs.
-        if "pgbouncer" in DATABASE_URL.lower() or ":6543/" in DATABASE_URL:
-            kwargs["statement_cache_size"] = 0
-        _pg_pool = await _asyncpg.create_pool(DATABASE_URL, **kwargs)
+        _pg_pool = await _asyncpg.create_pool(**_pg_connect_kwargs())
 
 
 async def get_db() -> _Conn:
