@@ -14,6 +14,7 @@ import type {
 
 const CV_TEXT_KEY = "coldpilot:cv:text";
 const CV_NAME_KEY = "coldpilot:cv:name";
+const FORM_KEY   = "coldpilot:form";
 
 // ── Prospect Row type ──
 interface ProspectRow {
@@ -71,6 +72,7 @@ export default function NewCampaignPage() {
   // ── Rehydrate on mount from sessionStorage ──
   useEffect(() => {
     try {
+      // Restore live campaign state
       const raw = sessionStorage.getItem("coldpilot_campaign");
       if (raw) {
         const saved = JSON.parse(raw);
@@ -81,6 +83,22 @@ export default function NewCampaignPage() {
           setFeed(saved.feed || []);
           feedIdRef.current = (saved.feed || []).length;
           setAutonomy(saved.autonomy || "copilot");
+        }
+      }
+      // Restore form state (survives navigation within the session)
+      const formRaw = sessionStorage.getItem(FORM_KEY);
+      if (formRaw) {
+        const f = JSON.parse(formRaw);
+        if (f.mode) setMode(f.mode);
+        if (f.autonomy) setAutonomy(f.autonomy);
+        if (typeof f.dryRun === "boolean") setDryRun(f.dryRun);
+        if (f.companyName) setCompanyName(f.companyName);
+        if (f.companyDesc) setCompanyDesc(f.companyDesc);
+        if (f.targetIndustry) setTargetIndustry(f.targetIndustry);
+        if (f.targetJobTitle) setTargetJobTitle(f.targetJobTitle);
+        if (f.desiredRole) setDesiredRole(f.desiredRole);
+        if (f.prospects && Array.isArray(f.prospects) && f.prospects.length > 0) {
+          setProspects(f.prospects);
         }
       }
     } catch {}
@@ -115,6 +133,20 @@ export default function NewCampaignPage() {
       } catch {}
     }
   }, [hydrated, launched, campaignId, streamDone, feed, autonomy]);
+
+  // ── Persist form state to sessionStorage ──
+  // Runs whenever any form field changes — survives navigation within the tab.
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      sessionStorage.setItem(FORM_KEY, JSON.stringify({
+        mode, autonomy, dryRun,
+        companyName, companyDesc, targetIndustry, targetJobTitle,
+        desiredRole, prospects,
+      }));
+    } catch {}
+  }, [hydrated, mode, autonomy, dryRun, companyName, companyDesc,
+      targetIndustry, targetJobTitle, desiredRole, prospects]);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -213,7 +245,10 @@ export default function NewCampaignPage() {
 
   // ── Handle completed or errored pending emails ──
   const handleClearCampaign = useCallback(() => {
-    try { sessionStorage.removeItem("coldpilot_campaign"); } catch {}
+    try {
+      sessionStorage.removeItem("coldpilot_campaign");
+      sessionStorage.removeItem(FORM_KEY);
+    } catch {}
     setLaunched(false);
     setCampaignId(null);
     setFeed([]);
@@ -221,6 +256,16 @@ export default function NewCampaignPage() {
     setPendingEmail(null);
     setError("");
     setSaving(false);
+    // Reset form to blank
+    setMode("hunter");
+    setAutonomy("copilot");
+    setDryRun(true);
+    setCompanyName("");
+    setCompanyDesc("");
+    setTargetIndustry("");
+    setTargetJobTitle("");
+    setDesiredRole("");
+    setProspects([{ ...EMPTY_ROW }]);
   }, []);
 
   // ── SSE listener ──
@@ -597,12 +642,13 @@ export default function NewCampaignPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-text-secondary">
           <div className="space-y-2">
             <p className="font-semibold text-text-primary flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Hunter Mode</p>
+            <p className="text-text-muted text-xs italic">You send. The target companies receive.</p>
             <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
-              <li>Enter your company name and what you do</li>
-              <li>Set your target industry and job title (who you want to reach)</li>
-              <li>Choose autonomy level (Copilot = you approve each email)</li>
-              <li>Launch: ColdPilot finds contacts, researches them and writes personalised emails</li>
-              <li>Check <strong className="text-text-secondary">Inbox</strong> to approve or edit drafts</li>
+              <li>Enter YOUR company name and what you do</li>
+              <li>Add the companies you want to pitch to (your prospects)</li>
+              <li>Choose autonomy level (Copilot = you approve each email before it sends)</li>
+              <li>Launch: ColdPilot finds a contact at each company, researches them and writes the email</li>
+              <li>The contact at that company receives the email from your inbox</li>
             </ol>
           </div>
           <div className="space-y-2">
