@@ -31,8 +31,8 @@ function TopNav() {
           Cold<span className="text-accent">Pilot</span>
         </Link>
 
-        {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-0.5">
+        {/* Desktop nav — only on lg+ so it never crowds */}
+        <nav className="hidden lg:flex items-center gap-0.5">
           {NAV.map((item) => {
             const active =
               item.href === "/"
@@ -56,8 +56,8 @@ function TopNav() {
 
         {/* Desktop user */}
         {user && (
-          <div className="hidden md:flex items-center gap-3 shrink-0">
-            <span className="text-xs text-text-muted truncate max-w-[140px]">
+          <div className="hidden lg:flex items-center gap-3 shrink-0">
+            <span className="text-xs text-text-muted truncate max-w-[160px]">
               {user.email}
             </span>
             <button
@@ -68,11 +68,11 @@ function TopNav() {
             </button>
           </div>
         )}
-        {!user && <div className="hidden md:block w-16" />}
+        {!user && <div className="hidden lg:block w-16" />}
 
-        {/* Mobile hamburger */}
+        {/* Hamburger — shows on everything below lg (1024px) */}
         <button
-          className="md:hidden p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
+          className="lg:hidden p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors"
           onClick={() => setMenuOpen((o) => !o)}
           aria-label="Toggle navigation menu"
         >
@@ -108,9 +108,9 @@ function TopNav() {
         </button>
       </div>
 
-      {/* Mobile dropdown */}
+      {/* Mobile/tablet dropdown */}
       {menuOpen && (
-        <div className="md:hidden border-t border-border bg-surface/95 backdrop-blur-md px-4 py-3 space-y-1">
+        <div className="lg:hidden border-t border-border bg-surface/95 backdrop-blur-md px-4 py-3 space-y-1">
           {NAV.map((item) => {
             const active =
               item.href === "/"
