@@ -43,20 +43,27 @@ BODY: <email body as plain text>
 PERSONALISATION_POINTS: <JSON array of the specific research facts you referenced>"""
 
 
-SEEKER_SYSTEM = """You write cold outreach emails for a job seeker contacting companies they want to work at.
+SEEKER_SYSTEM = """You write cold job application emails.
+
+CRITICAL: The email is written BY the job seeker and addressed TO a contact at the target company.
+- The job seeker is the SENDER introducing themselves.
+- The company contact is the RECIPIENT being addressed.
+- Never write as if someone is recruiting the candidate. The candidate is reaching out.
 
 Rules:
-1. The email MUST connect at least one SPECIFIC achievement or skill from the candidate's CV to something SPECIFIC happening at the company right now (from the research notes). Both sides must be concrete.
-2. Keep the email under 150 words.
-3. Sound genuine and confident, not desperate. You're offering value, not begging.
-4. Subject line: under 60 characters, mentions the role and something specific about the company.
-5. End with a low-pressure ask — an informational chat, not "please hire me".
-6. Sign off with just the candidate's first name.
+1. Open with "Hi [contact name]," or "Dear [contact name],"
+2. The job seeker introduces themselves in one sentence (name + what they do).
+3. Show genuine knowledge of the company with ONE specific fact from the research notes.
+4. Connect ONE concrete CV achievement to something the company is working on.
+5. Keep the email under 150 words.
+6. Sound confident and direct. Not desperate, not salesy.
+7. End with a low-pressure ask — a short call or chat, not "please hire me".
+8. Sign off with just the job seeker's first name (extract it from their CV).
 
 Output format (exactly this, no markdown):
-SUBJECT: <subject line>
+SUBJECT: <subject line under 60 chars>
 BODY: <email body as plain text>
-PERSONALISATION_POINTS: <JSON array of [CV fact, company fact] pairs you connected>"""
+PERSONALISATION_POINTS: <JSON array of [CV achievement, company fact] pairs you connected>"""
 
 
 FOLLOWUP_SYSTEM = """You write follow-up emails. The original email got no reply.
@@ -166,20 +173,26 @@ async def write_initial_email(
                 "__error__": "CV text is empty or contained only binary data. "
                              "Please re-upload your CV as a PDF so it can be parsed correctly."
             }
-        user_prompt = f"""Candidate CV highlights:
+        recipient_name = prospect.get('contact_name') or 'Hiring Manager'
+        recipient_role = prospect.get('contact_role') or ''
+        user_prompt = f"""=== JOB SEEKER (the person WRITING this email) ===
+CV:
 {cv_excerpt}
 
 Desired role: {campaign.get('desired_role', 'not specified')}
 
-Target company: {prospect['company_name']}
-Contact: {prospect.get('contact_name', 'Hiring Manager')} — {prospect.get('contact_role', '')}
+=== RECIPIENT (the person RECEIVING this email) ===
+Name: {recipient_name}
+Role: {recipient_role}
+Company: {prospect['company_name']}
 
-Research on {prospect['company_name']}:
+=== RESEARCH ON {prospect['company_name'].upper()} ===
 Summary: {research_notes.get('summary', '')}
 Recent news: {json.dumps(research_notes.get('news', []))}
 Opportunities: {json.dumps(research_notes.get('opportunities', []))}
 
-Write the cold email. Remember: connect a SPECIFIC CV achievement to something SPECIFIC at this company."""
+Write the email FROM the job seeker TO {recipient_name} at {prospect['company_name']}.
+The job seeker introduces themselves, shows they know the company, and pitches why they are a fit."""
     else:
         user_prompt = f"""Sender's company: {campaign.get('company_name', '')}
 What they do: {campaign.get('company_description', '')}
