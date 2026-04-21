@@ -60,7 +60,7 @@ async def _check_dns_deliverability(domain: str) -> dict:
 @router.get("")
 async def get_settings():
     """Return which services are configured (not the keys themselves)."""
-    smtp_ok = bool(os.getenv("SMTP_USER") and os.getenv("SMTP_APP_PASSWORD"))
+    smtp_ok = bool(os.getenv("SMTP_USER") and (os.getenv("SMTP_APP_PASSWORD") or os.getenv("SMTP_PASS")))
     return {
         "smtp_configured": smtp_ok,
         # IMAP uses same credentials as SMTP — if SMTP is configured, IMAP is too

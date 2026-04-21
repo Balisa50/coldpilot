@@ -17,7 +17,7 @@ def _config() -> dict:
         "hostname": os.getenv("SMTP_HOST", "smtp.gmail.com"),
         "port": int(os.getenv("SMTP_PORT", "587")),
         "username": os.getenv("SMTP_USER", ""),
-        "password": os.getenv("SMTP_APP_PASSWORD", ""),
+        "password": os.getenv("SMTP_APP_PASSWORD") or os.getenv("SMTP_PASS", ""),
     }
 
 
