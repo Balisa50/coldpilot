@@ -671,7 +671,7 @@ export default function NewCampaignPage() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".pdf,.doc,.docx,.txt"
+                  accept=".pdf,.txt"
                   onChange={handleCvUpload}
                   className="hidden"
                 />
@@ -698,7 +698,7 @@ export default function NewCampaignPage() {
                       />
                     </svg>
                     <p className="text-sm text-text-muted">Drop your CV here or click to browse</p>
-                    <p className="text-xs text-text-muted mt-1">PDF, DOC, or TXT</p>
+                    <p className="text-xs text-text-muted mt-1">PDF or TXT only</p>
                   </div>
                 )}
               </div>
