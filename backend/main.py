@@ -14,7 +14,7 @@ load_dotenv()
 
 from backend import db
 from backend.scheduler.scheduler import start_scheduler, stop_scheduler
-from backend.routers import campaigns, prospects, emails, activity, settings
+from backend.routers import campaigns, prospects, emails, activity, settings, tracking
 
 
 @asynccontextmanager
@@ -50,6 +50,7 @@ app.include_router(prospects.router)
 app.include_router(emails.router)
 app.include_router(activity.router)
 app.include_router(settings.router)
+app.include_router(tracking.router)
 
 
 @app.get("/api/health")

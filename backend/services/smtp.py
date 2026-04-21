@@ -27,10 +27,15 @@ async def send_email(
     body_html: str,
     body_text: str,
     from_name: str | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
 ) -> dict:
     """
     Send an email via SMTP.
     Returns {"success": True} or {"success": False, "error": str, "bounce": bool}.
+
+    Pass ``in_reply_to`` and ``references`` (both the original Message-ID string,
+    e.g. "<abc@domain>") to thread follow-ups into the same conversation.
     """
     cfg = _config()
     if not cfg["username"] or not cfg["password"]:
@@ -50,6 +55,12 @@ async def send_email(
     msg["To"] = to_email
     msg["Subject"] = subject
     msg["Message-ID"] = msg_id
+
+    # Thread follow-ups into the same conversation (RFC 2822)
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = references or in_reply_to
+
     msg.attach(MIMEText(body_text, "plain"))
     msg.attach(MIMEText(body_html, "html"))
 

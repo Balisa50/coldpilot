@@ -139,6 +139,7 @@ async def list_campaigns():
         c["prospect_count"] = len(prospects)
         c["sent_count"] = sum(1 for p in prospects if p["status"] == "email_sent")
         c["replied_count"] = sum(1 for p in prospects if p["status"] == "replied")
+        c["bounce_count"] = sum(1 for p in prospects if p["status"] == "bounced")
     return campaigns
 
 

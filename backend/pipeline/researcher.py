@@ -75,8 +75,8 @@ Extract structured research notes as JSON."""
             text = text.rsplit("```", 1)[0]
 
         notes = json.loads(text)
-    except (json.JSONDecodeError, Exception):
-        # LLM failed to produce clean JSON — extract what we can
+    except Exception:
+        # LLM failed or produced malformed JSON — fall back to raw snippets
         notes = {
             "summary": snippets[0][:300] if snippets else f"Research on {company_name}",
             "news": snippets[1:3] if len(snippets) > 1 else [],

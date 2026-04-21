@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS prospects (
     email_source        TEXT CHECK(email_source IN ('hunter', 'pattern_guess', 'manual')),
     email_verified      INTEGER DEFAULT 0,
     research_notes      TEXT,       -- JSON: {summary, news[], pain_points[], opportunities[]}
+    unsubscribed_at     TEXT,           -- When prospect opted out
     status              TEXT NOT NULL DEFAULT 'pending'
                         CHECK(status IN ('pending', 'researching', 'contact_found',
                                          'email_drafted', 'email_approved', 'email_sent',
@@ -58,6 +59,8 @@ CREATE TABLE IF NOT EXISTS emails (
     message_id          TEXT,           -- SMTP Message-ID for reply matching
     sent_at             TEXT,
     replied_at          TEXT,
+    opened_at           TEXT,           -- First open detected via tracking pixel
+    clicked_at          TEXT,           -- First link click via redirect tracking
     bounce_reason       TEXT,
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );

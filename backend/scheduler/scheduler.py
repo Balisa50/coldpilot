@@ -25,6 +25,38 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
 
+_BOUNCE_THRESHOLD = 0.10
+_BOUNCE_MIN_SAMPLE = 5
+
+
+async def _check_campaign_bounce_rate(campaign_id: str) -> None:
+    """Pause a campaign if its bounce rate exceeds 10% after at least 5 sends.
+
+    Mirrors the same check in orchestrator.py so the scheduler-side sends
+    (follow-ups and copilot-approved emails) also respect the threshold.
+    """
+    emails = await db.list_emails(campaign_id)
+    delivered = [e for e in emails if e["status"] in ("sent", "bounced", "replied")]
+    bounced   = [e for e in emails if e["status"] == "bounced"]
+    if len(delivered) < _BOUNCE_MIN_SAMPLE:
+        return
+    rate = len(bounced) / len(delivered)
+    if rate > _BOUNCE_THRESHOLD:
+        await db.update_campaign(campaign_id, {"status": "paused"})
+        await db.log_action(
+            "campaign_auto_paused",
+            campaign_id=campaign_id,
+            detail={
+                "reason": "bounce_rate_exceeded",
+                "bounce_rate_pct": round(rate * 100, 1),
+                "threshold_pct": round(_BOUNCE_THRESHOLD * 100),
+            },
+        )
+        logger.warning(
+            "Campaign %s auto-paused: bounce rate %.1f%% > %.0f%%",
+            campaign_id, rate * 100, _BOUNCE_THRESHOLD * 100,
+        )
+
 
 async def check_followups() -> None:
     """Process all due follow-ups."""
@@ -91,16 +123,28 @@ async def check_followups() -> None:
 
         # Send if not dry run
         if campaign and not campaign.get("dry_run"):
-            result = await sender.send_email(email_record, prospect)
-            if result["success"] and fu["followup_number"] < 2:
-                # Schedule next follow-up
-                await followup.schedule_followup(
-                    email_record["id"], prospect["id"],
-                    fu["campaign_id"], followup_number=fu["followup_number"] + 1,
-                )
+            # Thread the follow-up into the same conversation as the original email.
+            # original["message_id"] may be None if the initial send pre-dated this feature.
+            thread_id = original.get("message_id") if original else None
+            result = await sender.send_email(email_record, prospect, in_reply_to=thread_id)
+            if result["success"]:
+                if fu["followup_number"] < 2:
+                    # Schedule next follow-up
+                    await followup.schedule_followup(
+                        email_record["id"], prospect["id"],
+                        fu["campaign_id"], followup_number=fu["followup_number"] + 1,
+                    )
                 await sender.spacing_delay()
-
-        await db.update_followup(fu["id"], "sent")
+                await db.update_followup(fu["id"], "sent")
+            elif result.get("bounce"):
+                # Bounce: cancel this follow-up slot and check campaign health
+                await db.update_followup(fu["id"], "cancelled")
+                await _check_campaign_bounce_rate(fu["campaign_id"])
+            else:
+                # Transient failure: leave as pending so it retries next hour
+                logger.warning("Follow-up send failed for %s: %s", fu["id"], result.get("error"))
+        else:
+            await db.update_followup(fu["id"], "sent")
 
 
 async def send_approved_emails() -> None:
@@ -121,14 +165,28 @@ async def send_approved_emails() -> None:
                                 prospect["id"], email_record["id"])
             continue
 
-        result = await sender.send_email(email_record, prospect)
-        if result["success"] and email_record["email_type"] == "initial":
-            await followup.schedule_followup(
-                email_record["id"], prospect["id"],
-                email_record["campaign_id"], followup_number=1,
+        # For follow-up emails thread them into the original conversation.
+        thread_id: str | None = None
+        if email_record["email_type"] != "initial":
+            campaign_emails = await db.list_emails(email_record["campaign_id"])
+            original = next(
+                (e for e in campaign_emails
+                 if e["prospect_id"] == email_record["prospect_id"]
+                 and e["email_type"] == "initial"),
+                None,
             )
+            thread_id = original.get("message_id") if original else None
 
-        await sender.spacing_delay()
+        result = await sender.send_email(email_record, prospect, in_reply_to=thread_id)
+        if result["success"]:
+            if email_record["email_type"] == "initial":
+                await followup.schedule_followup(
+                    email_record["id"], prospect["id"],
+                    email_record["campaign_id"], followup_number=1,
+                )
+            await sender.spacing_delay()
+        elif result.get("bounce"):
+            await _check_campaign_bounce_rate(email_record["campaign_id"])
 
 
 async def reset_daily_counter() -> None:

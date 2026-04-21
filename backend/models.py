@@ -52,7 +52,7 @@ class CampaignResponse(BaseModel):
     autonomy: str
     name: str
     status: str
-    dry_run: int
+    dry_run: bool
     company_name: str | None = None
     company_url: str | None = None
     company_description: str | None = None
@@ -82,7 +82,7 @@ class ProspectResponse(BaseModel):
     contact_email: str | None = None
     contact_role: str | None = None
     email_source: str | None = None
-    email_verified: int
+    email_verified: bool
     research_notes: str | None = None
     status: str
     created_at: str
@@ -131,7 +131,9 @@ class StatsResponse(BaseModel):
     total_sent: int
     total_replied: int
     total_bounced: int
+    total_opened: int = 0
     reply_rate: float
+    open_rate: float = 0.0
     bounce_rate: float
     pending_approval: int
     active_campaigns: int

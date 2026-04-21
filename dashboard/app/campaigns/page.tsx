@@ -116,16 +116,14 @@ export default function CampaignsPage() {
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row — reply_rate & open_rate already arrive as percentages */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <StatCard label="Sent Today" value={`${stats.sent_today} / ${stats.limit_today}`} />
           <StatCard label="Total Sent" value={stats.total_sent} />
-          <StatCard label="Replies" value={stats.total_replied} />
-          <StatCard
-            label="Reply Rate"
-            value={`${stats.reply_rate.toFixed(1)}%`}
-          />
+          <StatCard label="Opened" value={stats.total_opened ?? 0} />
+          <StatCard label="Open Rate" value={`${(stats.open_rate ?? 0).toFixed(1)}%`} />
+          <StatCard label="Reply Rate" value={`${stats.reply_rate.toFixed(1)}%`} />
         </div>
       )}
 
@@ -169,6 +167,9 @@ export default function CampaignsPage() {
                     {c.prospect_count ?? 0} prospect{c.prospect_count !== 1 ? "s" : ""} ·{" "}
                     {c.sent_count ?? 0} sent ·{" "}
                     {c.replied_count ?? 0} replied
+                    {(c.bounce_count ?? 0) > 0 && (
+                      <span className="text-red"> · {c.bounce_count} bounced</span>
+                    )}
                     {c.dry_run ? " · dry run" : ""}
                   </p>
                   <p className="text-xs text-text-muted mt-0.5">

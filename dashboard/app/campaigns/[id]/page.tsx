@@ -9,33 +9,82 @@ import type { Campaign, Prospect, Email, ActionLog } from "../../lib/types";
 type DetailTab = "prospects" | "emails" | "activity";
 
 const PROSPECT_STATUS_BADGE: Record<string, string> = {
-  pending: "bg-text-muted/15 text-text-muted",
-  researching: "bg-accent/15 text-accent",
-  contact_found: "bg-amber/15 text-amber",
-  email_drafted: "bg-accent/15 text-accent",
-  email_approved: "bg-accent/15 text-accent",
-  email_sent: "bg-green/15 text-green",
-  replied: "bg-green/15 text-green",
-  bounced: "bg-red/15 text-red",
-  opted_out: "bg-red/15 text-red",
-  failed: "bg-red/15 text-red",
+  pending:           "bg-text-muted/15 text-text-muted",
+  researching:       "bg-accent/15 text-accent",
+  contact_found:     "bg-amber/15 text-amber",
+  email_drafted:     "bg-accent/15 text-accent",
+  email_approved:    "bg-accent/15 text-accent",
+  email_sent:        "bg-green/15 text-green",
+  replied:           "bg-green/15 text-green",
+  bounced:           "bg-red/15 text-red",
+  opted_out:         "bg-red/15 text-red",
+  failed:            "bg-red/15 text-red",
 };
 
 const EMAIL_STATUS_BADGE: Record<string, string> = {
-  draft: "bg-text-muted/15 text-text-muted",
+  draft:            "bg-text-muted/15 text-text-muted",
   pending_approval: "bg-amber/15 text-amber",
-  approved: "bg-accent/15 text-accent",
-  sent: "bg-green/15 text-green",
-  bounced: "bg-red/15 text-red",
-  failed: "bg-red/15 text-red",
+  approved:         "bg-accent/15 text-accent",
+  sent:             "bg-green/15 text-green",
+  bounced:          "bg-red/15 text-red",
+  failed:           "bg-red/15 text-red",
 };
 
-const ACTION_COLOR: Record<string, string> = {
-  info: "text-text-secondary",
-  success: "text-green",
-  warn: "text-amber",
-  error: "text-red",
+// Action log colours
+const ACTION_STYLE: Record<string, { dot: string; text: string }> = {
+  email_sent:              { dot: "bg-green",      text: "text-green" },
+  email_approved:          { dot: "bg-green",      text: "text-green" },
+  reply_detected:          { dot: "bg-green",      text: "text-green" },
+  campaign_completed:      { dot: "bg-green",      text: "text-green" },
+  contact_found:           { dot: "bg-accent",     text: "text-accent" },
+  email_drafted:           { dot: "bg-accent",     text: "text-accent" },
+  email_pending_approval:  { dot: "bg-accent",     text: "text-accent" },
+  campaign_started:        { dot: "bg-accent",     text: "text-accent" },
+  research_complete:       { dot: "bg-text-muted", text: "text-text-secondary" },
+  contact_provided:        { dot: "bg-text-muted", text: "text-text-secondary" },
+  contact_not_found:       { dot: "bg-amber",      text: "text-amber" },
+  contact_skipped:         { dot: "bg-amber",      text: "text-amber" },
+  daily_limit_reached:     { dot: "bg-amber",      text: "text-amber" },
+  campaign_auto_paused:    { dot: "bg-amber",      text: "text-amber" },
+  send_failed:             { dot: "bg-red",        text: "text-red" },
+  bounce_detected:         { dot: "bg-red",        text: "text-red" },
+  pipeline_error:          { dot: "bg-red",        text: "text-red" },
 };
+
+function getActionStyle(action: string) {
+  return ACTION_STYLE[action] ?? { dot: "bg-text-muted", text: "text-text-secondary" };
+}
+
+/** Convert a JSON-encoded action log detail string to a readable one-liner. */
+function formatDetail(raw: string | null): string {
+  if (!raw) return "";
+  try {
+    const obj = JSON.parse(raw);
+    if (typeof obj !== "object" || obj === null) return raw;
+    return Object.entries(obj)
+      .map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`)
+      .join("  ·  ");
+  } catch {
+    return raw;
+  }
+}
+
+/** Safely extract a readable summary from research_notes (may be JSON string or plain text). */
+function parseResearchSummary(raw: unknown): string {
+  if (!raw) return "";
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed?.summary ?? raw;
+    } catch {
+      return raw;
+    }
+  }
+  if (typeof raw === "object" && raw !== null) {
+    return (raw as Record<string, string>).summary ?? JSON.stringify(raw);
+  }
+  return String(raw);
+}
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -63,7 +112,11 @@ export default function CampaignDetailPage() {
       ]);
       setCampaign(c);
       setProspects(p);
-      setEmails(e.sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime()));
+      setEmails(
+        e.sort(
+          (x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime(),
+        ),
+      );
       setActivity(a);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load campaign");
@@ -128,6 +181,9 @@ export default function CampaignDetailPage() {
   }
 
   const pendingCount = emails.filter((e) => e.status === "pending_approval").length;
+  const sentCount = emails.filter((e) => e.status === "sent").length;
+  const openedCount = emails.filter((e) => e.opened_at).length;
+  const repliedCount = prospects.filter((p) => p.status === "replied").length;
 
   return (
     <div className="space-y-6">
@@ -170,15 +226,24 @@ export default function CampaignDetailPage() {
               </span>
             )}
           </div>
-          <p className="text-xs text-text-muted mt-1">
-            {prospects.length} prospect{prospects.length !== 1 ? "s" : ""} ·{" "}
-            {emails.filter((e) => e.status === "sent").length} sent ·{" "}
-            {prospects.filter((p) => p.status === "replied").length} replied ·{" "}
-            Created {new Date(campaign.created_at).toLocaleDateString()}
-          </p>
+
+          {/* Quick-stats strip */}
+          <div className="flex flex-wrap gap-4 mt-3">
+            {[
+              { label: "Prospects", value: prospects.length },
+              { label: "Sent", value: sentCount },
+              { label: "Opened", value: openedCount },
+              { label: "Replied", value: repliedCount },
+            ].map((s) => (
+              <div key={s.label} className="text-center">
+                <p className="text-lg font-bold text-text-primary leading-tight">{s.value}</p>
+                <p className="text-xs text-text-muted">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="shrink-0">
           <button
             onClick={() => { setLoading(true); load(); }}
             className="text-xs text-text-secondary hover:text-accent transition-colors"
@@ -226,43 +291,44 @@ export default function CampaignDetailPage() {
           {prospects.length === 0 ? (
             <div className="text-center py-16 text-text-muted text-sm">No prospects yet</div>
           ) : (
-            prospects.map((p) => (
-              <div
-                key={p.id}
-                className="bg-surface border border-border rounded-xl px-5 py-4 flex items-center gap-4"
-              >
-                <span
-                  className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                    PROSPECT_STATUS_BADGE[p.status] || "bg-border text-text-muted"
-                  }`}
+            prospects.map((p) => {
+              const summary = parseResearchSummary(p.research_notes);
+              return (
+                <div
+                  key={p.id}
+                  className="bg-surface border border-border rounded-xl px-5 py-4 flex items-start gap-4"
                 >
-                  {p.status.replace(/_/g, " ")}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text-primary">
-                    {p.company_name}
-                    {p.contact_name && (
-                      <span className="text-text-muted font-normal"> — {p.contact_name}</span>
+                  <span
+                    className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium capitalize mt-0.5 ${
+                      PROSPECT_STATUS_BADGE[p.status] || "bg-border text-text-muted"
+                    }`}
+                  >
+                    {p.status.replace(/_/g, " ")}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-primary">
+                      {p.company_name}
+                      {p.contact_name && (
+                        <span className="text-text-muted font-normal"> — {p.contact_name}</span>
+                      )}
+                    </p>
+                    {(p.contact_email || p.contact_role) && (
+                      <p className="text-xs text-text-muted mt-0.5">
+                        {[p.contact_role, p.contact_email].filter(Boolean).join(" · ")}
+                      </p>
                     )}
-                  </p>
-                  {(p.contact_email || p.contact_role) && (
-                    <p className="text-xs text-text-muted mt-0.5">
-                      {[p.contact_role, p.contact_email].filter(Boolean).join(" · ")}
+                    {summary && (
+                      <p className="text-xs text-text-secondary mt-1 line-clamp-2">{summary}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs text-text-muted">
+                      {new Date(p.updated_at).toLocaleDateString()}
                     </p>
-                  )}
-                  {p.research_notes && (
-                    <p className="text-xs text-text-secondary mt-1 line-clamp-2">
-                      {p.research_notes}
-                    </p>
-                  )}
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs text-text-muted">
-                    {new Date(p.updated_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -303,10 +369,23 @@ export default function CampaignDetailPage() {
                       </p>
                       <p className="text-xs text-text-secondary truncate mt-0.5">{e.subject}</p>
                     </div>
+
+                    {/* Open / click tracking badges */}
+                    <div className="shrink-0 flex items-center gap-1.5 hidden sm:flex">
+                      {e.opened_at && (
+                        <span className="text-xs bg-green/10 text-green px-1.5 py-0.5 rounded">
+                          opened
+                        </span>
+                      )}
+                      {e.clicked_at && (
+                        <span className="text-xs bg-accent/10 text-accent px-1.5 py-0.5 rounded">
+                          clicked
+                        </span>
+                      )}
+                    </div>
+
                     <div className="shrink-0 text-right hidden sm:block">
-                      <p className="text-xs text-text-muted">
-                        {e.email_type.replace(/_/g, " ")}
-                      </p>
+                      <p className="text-xs text-text-muted">{e.email_type.replace(/_/g, " ")}</p>
                       <p className="text-xs text-text-muted mt-0.5">
                         {new Date(e.created_at).toLocaleDateString()}
                       </p>
@@ -363,6 +442,12 @@ export default function CampaignDetailPage() {
                       {e.sent_at && (
                         <p className="text-xs text-text-muted">
                           Sent {new Date(e.sent_at).toLocaleString()}
+                          {e.opened_at && (
+                            <> · Opened {new Date(e.opened_at).toLocaleString()}</>
+                          )}
+                          {e.clicked_at && (
+                            <> · Clicked {new Date(e.clicked_at).toLocaleString()}</>
+                          )}
                         </p>
                       )}
                     </div>
@@ -380,20 +465,31 @@ export default function CampaignDetailPage() {
           {activity.length === 0 ? (
             <div className="text-center py-16 text-text-muted text-sm">No activity yet</div>
           ) : (
-            activity.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-surface-elevated/40 transition-colors"
-              >
-                <span className="text-xs text-text-muted font-mono shrink-0 mt-0.5 w-32">
-                  {new Date(a.created_at).toLocaleTimeString()}
-                </span>
-                <span className={`text-sm ${ACTION_COLOR["info"]}`}>{a.action}</span>
-                {a.detail && (
-                  <span className="text-xs text-text-muted truncate flex-1">{a.detail}</span>
-                )}
-              </div>
-            ))
+            activity.map((a) => {
+              const style = getActionStyle(a.action);
+              const timeLabel = new Date(a.created_at).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              });
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-surface-elevated/40 transition-colors"
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${style.dot}`} />
+                  <span className="text-xs text-text-muted font-mono shrink-0 mt-0.5 w-24">
+                    {timeLabel}
+                  </span>
+                  <span className={`text-sm flex-1 min-w-0 ${style.text}`}>
+                    {a.action.replace(/_/g, " ")}
+                  </span>
+                  {a.detail && (
+                    <span className="text-xs text-text-muted truncate max-w-xs">{formatDetail(a.detail)}</span>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}

@@ -201,9 +201,6 @@ export default function NewCampaignPage() {
         const event = data.event;
 
         switch (event) {
-          case "finding_contact":
-            addFeed(`Finding contact at ${data.company_name || "company"}...`, "info");
-            break;
           case "contact_found": {
             const name = data.contact_name || "";
             const role = data.contact_role || "";
@@ -249,17 +246,19 @@ export default function NewCampaignPage() {
           case "contact_not_found":
             addFeed("Could not find contact", "warn");
             break;
-          case "researching":
-            addFeed(`Researching ${data.company_name || "company"}...`, "info");
+          case "contact_skipped":
+            addFeed(data.reason as string || "Contact skipped — unverified address", "warn");
             break;
-          case "writing_email":
-            addFeed("Writing personalised email...", "info");
+          case "campaign_auto_paused":
+            addFeed(`Campaign auto-paused: ${data.reason as string || "bounce rate threshold exceeded"}`, "error");
+            setStreamDone(true);
             break;
           case "email_sent":
             addFeed(`Email sent to ${data.contact_email || "contact"}`, "success");
             break;
           case "dry_run_skip":
-            addFeed("Dry run -- email skipped", "warn");
+          case "dry_run_skip_send":
+            addFeed("Dry run — email skipped (not sent)", "warn");
             break;
           case "email_approved":
             addFeed("Email approved", "success");
@@ -290,6 +289,9 @@ export default function NewCampaignPage() {
             break;
           case "error":
             addFeed(`Error: ${data.detail || data.message || "unknown"}`, "error");
+            break;
+          case "followup_scheduled":
+            addFeed(`Follow-up #${(data.followup_number as number) ?? 1} scheduled — sends in 3 days`, "info");
             break;
           case "campaign_started":
             // Silent — we already announced this

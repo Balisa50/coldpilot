@@ -65,8 +65,8 @@ export default function InboxPage() {
 
       setEmails(allEmails);
       setProspects(prospectMap);
-    } catch (err: any) {
-      setError(err.message || "Failed to load inbox");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load inbox");
     } finally {
       setLoading(false);
     }
@@ -90,8 +90,10 @@ export default function InboxPage() {
       setEmails((prev) =>
         prev.map((e) => (e.id === id ? { ...e, status: "approved" } : e))
       );
-      if (selected?.id === id) setSelected((s) => s ? { ...s, status: "approved" } : null);
-    } catch {} finally {
+      if (selected?.id === id) setSelected((s) => (s ? { ...s, status: "approved" } : null));
+    } catch {
+      // Non-fatal — user can retry
+    } finally {
       setActing(null);
     }
   };
@@ -102,7 +104,9 @@ export default function InboxPage() {
       await api.rejectEmail(id);
       setEmails((prev) => prev.filter((e) => e.id !== id));
       if (selected?.id === id) setSelected(null);
-    } catch {} finally {
+    } catch {
+      // Non-fatal
+    } finally {
       setActing(null);
     }
   };
@@ -113,7 +117,9 @@ export default function InboxPage() {
       const updated = await api.rewriteEmail(id);
       setEmails((prev) => prev.map((e) => (e.id === id ? updated : e)));
       if (selected?.id === id) setSelected(updated);
-    } catch {} finally {
+    } catch {
+      // Non-fatal
+    } finally {
       setActing(null);
     }
   };
@@ -222,7 +228,7 @@ export default function InboxPage() {
                       STATUS_BADGE[email.status] || "bg-border text-text-muted"
                     }`}
                   >
-                    {email.status.replace("_", " ")}
+                    {email.status.replace(/_/g, " ")}
                   </span>
 
                   {/* Prospect info */}
@@ -244,7 +250,7 @@ export default function InboxPage() {
                       {getCampaignName(email.campaign_id)}
                     </p>
                     <p className="text-xs text-text-muted mt-0.5">
-                      {email.email_type.replace("_", " ")}
+                      {email.email_type.replace(/_/g, " ")}
                     </p>
                   </div>
 

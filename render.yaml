@@ -4,6 +4,12 @@ services:
     runtime: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    plan: starter
+    branch: main
+    disk:
+      name: coldpilot-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
     envVars:
       - key: GROQ_API_KEY
         sync: false
@@ -17,13 +23,17 @@ services:
         value: "587"
       - key: SMTP_USER
         sync: false
-      - key: SMTP_PASS
+      - key: SMTP_APP_PASSWORD
         sync: false
       - key: SENDER_NAME
         sync: false
       - key: SENDER_EMAIL
         sync: false
+      - key: SENDER_COMPANY
+        sync: false
+      - key: SENDER_WEBSITE
+        sync: false
+      - key: BACKEND_URL
+        value: https://coldpilot-api.onrender.com
       - key: DASHBOARD_URL
         value: https://coldpilot-dashboard.vercel.app
-    plan: free
-    branch: main

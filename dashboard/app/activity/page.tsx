@@ -4,30 +4,75 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "../lib/api";
 import type { ActionLog, Stats } from "../lib/types";
 
-const ACTION_ICON: Record<string, { dot: string; text: string }> = {
-  email_sent: { dot: "bg-green", text: "text-green" },
-  email_approved: { dot: "bg-green", text: "text-green" },
-  contact_found: { dot: "bg-accent", text: "text-accent" },
-  email_drafted: { dot: "bg-accent", text: "text-accent" },
-  research_complete: { dot: "bg-text-muted", text: "text-text-secondary" },
-  prospect_failed: { dot: "bg-red", text: "text-red" },
-  send_failed: { dot: "bg-red", text: "text-red" },
-  email_bounced: { dot: "bg-red", text: "text-red" },
-  email_rejected: { dot: "bg-amber", text: "text-amber" },
-  campaign_started: { dot: "bg-accent", text: "text-accent" },
-  campaign_completed: { dot: "bg-green", text: "text-green" },
-  daily_limit_reached: { dot: "bg-amber", text: "text-amber" },
+// Dot colour + label colour keyed by action string
+const ACTION_STYLE: Record<string, { dot: string; text: string }> = {
+  email_sent:              { dot: "bg-green",       text: "text-green" },
+  email_approved:          { dot: "bg-green",       text: "text-green" },
+  reply_detected:          { dot: "bg-green",       text: "text-green" },
+  followup_sent:           { dot: "bg-green",       text: "text-green" },
+  campaign_completed:      { dot: "bg-green",       text: "text-green" },
+  contact_found:           { dot: "bg-accent",      text: "text-accent" },
+  email_drafted:           { dot: "bg-accent",      text: "text-accent" },
+  email_pending_approval:  { dot: "bg-accent",      text: "text-accent" },
+  followup_scheduled:      { dot: "bg-accent",      text: "text-accent" },
+  campaign_started:        { dot: "bg-accent",      text: "text-accent" },
+  research_complete:       { dot: "bg-text-muted",  text: "text-text-secondary" },
+  contact_provided:        { dot: "bg-text-muted",  text: "text-text-secondary" },
+  daily_limit_set:         { dot: "bg-text-muted",  text: "text-text-secondary" },
+  contact_not_found:       { dot: "bg-amber",       text: "text-amber" },
+  contact_skipped:         { dot: "bg-amber",       text: "text-amber" },
+  skipped_unverified_guess:{ dot: "bg-amber",       text: "text-amber" },
+  suppressed_opted_out:    { dot: "bg-amber",       text: "text-amber" },
+  suppressed_recently_contacted: { dot: "bg-amber", text: "text-amber" },
+  daily_limit_reached:     { dot: "bg-amber",       text: "text-amber" },
+  followup_cancelled:      { dot: "bg-amber",       text: "text-amber" },
+  email_rejected:          { dot: "bg-amber",       text: "text-amber" },
+  campaign_auto_paused:    { dot: "bg-amber",       text: "text-amber" },
+  send_failed:             { dot: "bg-red",         text: "text-red" },
+  email_write_failed:      { dot: "bg-red",         text: "text-red" },
+  bounce_detected:         { dot: "bg-red",         text: "text-red" },
+  pipeline_error:          { dot: "bg-red",         text: "text-red" },
 };
 
 function getStyle(action: string) {
-  return ACTION_ICON[action] || { dot: "bg-text-muted", text: "text-text-secondary" };
+  return ACTION_STYLE[action] ?? { dot: "bg-text-muted", text: "text-text-secondary" };
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+/**
+ * The DB stores action log `detail` as a JSON string.
+ * Convert it to a readable one-liner: "key: value, key: value…"
+ * Fall back to the raw string if it isn't valid JSON.
+ */
+function formatDetail(raw: string | null): string {
+  if (!raw) return "";
+  try {
+    const obj = JSON.parse(raw);
+    if (typeof obj !== "object" || obj === null) return raw;
+    return Object.entries(obj)
+      .map(([k, v]) => `${k}: ${String(v).slice(0, 60)}`)
+      .join("  ·  ");
+  } catch {
+    return raw;
+  }
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: boolean;
+}) {
   return (
     <div className="bg-surface rounded-xl border border-border p-4">
       <p className="text-xs text-text-muted uppercase tracking-wider mb-1">{label}</p>
-      <p className="text-2xl font-bold text-text-primary">{value}</p>
+      <p className={`text-2xl font-bold ${accent ? "text-accent" : "text-text-primary"}`}>
+        {value}
+      </p>
       {sub && <p className="text-xs text-text-muted mt-1">{sub}</p>}
     </div>
   );
@@ -105,7 +150,7 @@ export default function ActivityPage() {
         </button>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row — reply_rate already comes as a percentage from the backend */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard
@@ -116,13 +161,14 @@ export default function ActivityPage() {
           <StatCard label="Total Sent" value={stats.total_sent} />
           <StatCard
             label="Reply Rate"
-            value={`${(stats.reply_rate * 100).toFixed(1)}%`}
-            sub={`${stats.total_replied} replies`}
+            value={`${stats.reply_rate.toFixed(1)}%`}
+            sub={`${stats.total_replied} repl${stats.total_replied === 1 ? "y" : "ies"}`}
           />
           <StatCard
             label="Pending Review"
             value={stats.pending_approval}
-            sub={stats.pending_approval > 0 ? "check inbox" : "all clear"}
+            sub={stats.pending_approval > 0 ? "needs your attention" : "all clear"}
+            accent={stats.pending_approval > 0}
           />
         </div>
       )}
@@ -147,24 +193,30 @@ export default function ActivityPage() {
         <div className="bg-surface border border-border rounded-xl divide-y divide-border">
           {filtered.map((a) => {
             const style = getStyle(a.action);
+            const dateLabel = new Date(a.created_at).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            });
+            const timeLabel = new Date(a.created_at).toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
             return (
               <div key={a.id} className="flex items-start gap-4 px-5 py-3">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${style.dot}`}
-                />
+                <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${style.dot}`} />
                 <span className="text-xs text-text-muted font-mono shrink-0 mt-0.5 w-28">
-                  {new Date(a.created_at).toLocaleTimeString()}
+                  {timeLabel}
                 </span>
                 <div className="flex-1 min-w-0">
                   <span className={`text-sm font-medium ${style.text}`}>
                     {a.action.replace(/_/g, " ")}
                   </span>
                   {a.detail && (
-                    <p className="text-xs text-text-muted mt-0.5 truncate">{a.detail}</p>
+                    <p className="text-xs text-text-muted mt-0.5 truncate">{formatDetail(a.detail)}</p>
                   )}
                 </div>
                 <span className="text-xs text-text-muted shrink-0 hidden sm:inline">
-                  {new Date(a.created_at).toLocaleDateString()}
+                  {dateLabel}
                 </span>
               </div>
             );

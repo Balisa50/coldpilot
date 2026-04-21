@@ -53,10 +53,22 @@ async def init_db() -> None:
 
 async def _migrate(db: aiosqlite.Connection) -> None:
     """Apply schema migrations to existing databases without dropping data."""
-    cols = await db.execute_fetchall("PRAGMA table_info(emails)")
-    col_names = {row["name"] for row in cols}
-    if "message_id" not in col_names:
-        await db.execute("ALTER TABLE emails ADD COLUMN message_id TEXT")
+    email_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(emails)")}
+    prospect_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(prospects)")}
+
+    migrations: list[str] = []
+    if "message_id" not in email_cols:
+        migrations.append("ALTER TABLE emails ADD COLUMN message_id TEXT")
+    if "opened_at" not in email_cols:
+        migrations.append("ALTER TABLE emails ADD COLUMN opened_at TEXT")
+    if "clicked_at" not in email_cols:
+        migrations.append("ALTER TABLE emails ADD COLUMN clicked_at TEXT")
+    if "unsubscribed_at" not in prospect_cols:
+        migrations.append("ALTER TABLE prospects ADD COLUMN unsubscribed_at TEXT")
+
+    for sql in migrations:
+        await db.execute(sql)
+    if migrations:
         await db.commit()
 
 
@@ -145,6 +157,46 @@ async def delete_campaign(cid: str) -> bool:
         await db.close()
 
 
+# ─── Global suppression checks ──────────────────────────────
+
+async def is_opted_out(email: str) -> bool:
+    """Return True if this email address has ever opted out from any campaign.
+
+    Used as a global suppression check before sending to ensure we never
+    email someone who unsubscribed, regardless of which campaign they're in.
+    """
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT id FROM prospects WHERE LOWER(contact_email) = LOWER(?) AND status = 'opted_out' LIMIT 1",
+            (email,),
+        )
+        return len(rows) > 0
+    finally:
+        await db.close()
+
+
+async def was_recently_contacted(email: str, within_days: int = 30) -> bool:
+    """Return True if we sent an email to this address within the last N days.
+
+    Prevents hammering the same person from multiple campaigns.
+    """
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            """SELECT e.id FROM emails e
+               JOIN prospects p ON p.id = e.prospect_id
+               WHERE LOWER(p.contact_email) = LOWER(?)
+                 AND e.status = 'sent'
+                 AND e.sent_at >= datetime('now', ? || ' days')
+               LIMIT 1""",
+            (email, f"-{within_days}"),
+        )
+        return len(rows) > 0
+    finally:
+        await db.close()
+
+
 # ─── Prospects ───────────────────────────────────────────────
 
 async def create_prospect(data: dict) -> dict:
@@ -194,7 +246,8 @@ async def update_prospect(pid: str, updates: dict) -> dict | None:
         sets = []
         vals = []
         for key in ("contact_name", "contact_email", "contact_role",
-                     "email_source", "email_verified", "research_notes", "status"):
+                     "email_source", "email_verified", "research_notes",
+                     "unsubscribed_at", "status"):
             if key in updates:
                 val = updates[key]
                 if key == "research_notes" and isinstance(val, dict):
@@ -278,9 +331,9 @@ async def update_email(eid: str, updates: dict) -> dict | None:
     try:
         sets = []
         vals = []
-        for key in ("status", "sent_at", "replied_at", "bounce_reason",
-                     "subject", "body_html", "body_text", "personalisation_points",
-                     "message_id"):
+        for key in ("status", "sent_at", "replied_at", "opened_at", "clicked_at",
+                     "bounce_reason", "subject", "body_html", "body_text",
+                     "personalisation_points", "message_id"):
             if key in updates:
                 val = updates[key]
                 if key == "personalisation_points" and isinstance(val, list):
@@ -343,6 +396,50 @@ async def mark_replied(email_id: str, prospect_id: str) -> None:
             (ts, prospect_id),
         )
         # Cancel any pending follow-ups for this prospect
+        await db.execute(
+            "UPDATE followup_schedule SET status = 'cancelled' WHERE prospect_id = ? AND status = 'pending'",
+            (prospect_id,),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def mark_opened(email_id: str) -> None:
+    """Record first open of an email (idempotent — only sets once)."""
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE emails SET opened_at = ? WHERE id = ? AND opened_at IS NULL",
+            (now_iso(), email_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def mark_clicked(email_id: str) -> None:
+    """Record first link click in an email (idempotent — only sets once)."""
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE emails SET clicked_at = ? WHERE id = ? AND clicked_at IS NULL",
+            (now_iso(), email_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def mark_unsubscribed(prospect_id: str) -> None:
+    """Mark a prospect as opted out. Cancels pending follow-ups."""
+    db = await get_db()
+    try:
+        ts = now_iso()
+        await db.execute(
+            "UPDATE prospects SET status = 'opted_out', unsubscribed_at = ?, updated_at = ? WHERE id = ?",
+            (ts, ts, prospect_id),
+        )
         await db.execute(
             "UPDATE followup_schedule SET status = 'cancelled' WHERE prospect_id = ? AND status = 'pending'",
             (prospect_id,),
@@ -514,6 +611,9 @@ async def get_stats() -> dict:
         total_bounced = (await db.execute_fetchall(
             "SELECT COUNT(*) as c FROM emails WHERE status = 'bounced'"
         ))[0]["c"]
+        total_opened = (await db.execute_fetchall(
+            "SELECT COUNT(*) as c FROM emails WHERE opened_at IS NOT NULL"
+        ))[0]["c"]
         pending_approval = (await db.execute_fetchall(
             "SELECT COUNT(*) as c FROM emails WHERE status = 'pending_approval'"
         ))[0]["c"]
@@ -526,7 +626,9 @@ async def get_stats() -> dict:
             "total_sent": total_sent,
             "total_replied": total_replied,
             "total_bounced": total_bounced,
+            "total_opened": total_opened,
             "reply_rate": round(total_replied / max(total_sent, 1) * 100, 1),
+            "open_rate": round(total_opened / max(total_sent, 1) * 100, 1),
             "bounce_rate": round(total_bounced / max(total_sent, 1) * 100, 1),
             "pending_approval": pending_approval,
             "active_campaigns": active_campaigns,

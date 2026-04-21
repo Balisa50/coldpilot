@@ -14,11 +14,41 @@ from backend.pipeline import contact_finder, researcher, email_writer, sender, f
 
 
 MAX_CONCURRENT = 5
+BOUNCE_RATE_THRESHOLD = 0.10  # Pause campaign when > 10% of sends bounce
+BOUNCE_RATE_MIN_SAMPLE = 5    # Only enforce after this many sends
 
 
 async def _publish(campaign_id: str, event_type: str, data: dict) -> None:
     """Publish an SSE event for the dashboard."""
     await event_bus.publish(campaign_id, {"event": event_type, **data})
+
+
+async def _check_and_pause_on_bounce_rate(campaign_id: str) -> None:
+    """Auto-pause a campaign whose bounce rate exceeds the threshold.
+
+    Called after every bounce. Only evaluates once a minimum sample is available
+    so a single early bounce doesn't kill the campaign prematurely.
+    """
+    emails = await db.list_emails(campaign_id)
+    delivered = [e for e in emails if e["status"] in ("sent", "bounced", "replied")]
+    bounced = [e for e in emails if e["status"] == "bounced"]
+    if len(delivered) < BOUNCE_RATE_MIN_SAMPLE:
+        return
+    rate = len(bounced) / len(delivered)
+    if rate > BOUNCE_RATE_THRESHOLD:
+        await db.update_campaign(campaign_id, {"status": "paused"})
+        await db.log_action(
+            "campaign_auto_paused",
+            campaign_id=campaign_id,
+            detail={
+                "reason": "bounce_rate_exceeded",
+                "bounce_rate_pct": round(rate * 100, 1),
+                "threshold_pct": round(BOUNCE_RATE_THRESHOLD * 100, 1),
+            },
+        )
+        await _publish(campaign_id, "campaign_auto_paused", {
+            "reason": f"Bounce rate {round(rate * 100, 1)}% exceeded {round(BOUNCE_RATE_THRESHOLD * 100)}% threshold. Campaign paused to protect sender reputation.",
+        })
 
 
 async def process_prospect(
@@ -60,6 +90,20 @@ async def process_prospect(
                     await _publish(cid, "contact_not_found", {"prospect_id": pid})
                     return
 
+                # Gate: never send to unverified pattern-guessed emails.
+                # Pattern guessing is just first.last@domain with no verification.
+                # Sending to these wrecks sender reputation and risks CAN-SPAM violations.
+                if contact.get("email_source") == "pattern_guess" and not contact.get("email_verified"):
+                    await db.update_prospect(pid, {"status": "failed"})
+                    await db.log_action("skipped_unverified_guess", cid, pid,
+                                        detail={"email": contact["contact_email"],
+                                                "reason": "Pattern-guessed address — unverifiable"})
+                    await _publish(cid, "contact_skipped", {
+                        "prospect_id": pid,
+                        "reason": "Could not find a verified email. Add one manually to include this contact.",
+                    })
+                    return
+
                 await db.update_prospect(pid, {
                     "contact_name": contact.get("contact_name", prospect.get("contact_name")),
                     "contact_email": contact["contact_email"],
@@ -81,6 +125,28 @@ async def process_prospect(
 
             # Refresh prospect after update
             prospect = await db.get_prospect(pid)
+
+            # Global suppression: never email opted-out contacts or recent contacts
+            email_addr = prospect.get("contact_email", "")
+            if email_addr:
+                if await db.is_opted_out(email_addr):
+                    await db.update_prospect(pid, {"status": "opted_out"})
+                    await db.log_action("suppressed_opted_out", cid, pid,
+                                        detail={"email": email_addr})
+                    await _publish(cid, "contact_skipped", {
+                        "prospect_id": pid,
+                        "reason": "This address previously unsubscribed — not contacting again.",
+                    })
+                    return
+                if await db.was_recently_contacted(email_addr, within_days=30):
+                    await db.update_prospect(pid, {"status": "failed"})
+                    await db.log_action("suppressed_recently_contacted", cid, pid,
+                                        detail={"email": email_addr})
+                    await _publish(cid, "contact_skipped", {
+                        "prospect_id": pid,
+                        "reason": "Already emailed this address in the last 30 days.",
+                    })
+                    return
 
             # Stage 2: Research
             await _publish(cid, "stage_start", {"prospect_id": pid, "stage": "research"})
@@ -181,9 +247,12 @@ async def process_prospect(
                     # Spacing between sends
                     await sender.spacing_delay()
                 else:
+                    if send_result.get("bounce"):
+                        await _check_and_pause_on_bounce_rate(cid)
                     await _publish(cid, "send_failed", {
                         "prospect_id": pid,
                         "error": send_result.get("error", ""),
+                        "bounce": send_result.get("bounce", False),
                     })
 
         except Exception as e:

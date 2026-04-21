@@ -17,7 +17,7 @@ export interface Campaign {
   autonomy: AutonomyLevel;
   name: string;
   status: CampaignStatus;
-  dry_run: number;
+  dry_run: boolean;
   company_name: string | null;
   company_url: string | null;
   company_description: string | null;
@@ -30,6 +30,7 @@ export interface Campaign {
   prospect_count?: number;
   sent_count?: number;
   replied_count?: number;
+  bounce_count?: number;
 }
 
 export interface TargetCompany {
@@ -79,7 +80,7 @@ export interface Prospect {
   contact_email: string | null;
   contact_role: string | null;
   email_source: string | null;
-  email_verified: number;
+  email_verified: boolean;
   research_notes: string | null;
   status: ProspectStatus;
   created_at: string;
@@ -106,8 +107,11 @@ export interface Email {
   body_text: string;
   personalisation_points: string | null;
   status: EmailStatus;
+  message_id: string | null;
   sent_at: string | null;
   replied_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
   bounce_reason: string | null;
   created_at: string;
   prospect?: Prospect;
@@ -133,16 +137,29 @@ export interface Stats {
   total_sent: number;
   total_replied: number;
   total_bounced: number;
+  total_opened: number;
   reply_rate: number;
+  open_rate: number;
   bounce_rate: number;
   pending_approval: number;
   active_campaigns: number;
+}
+
+export interface DnsCheckResult {
+  ok: boolean;
+  domain: string;
+  spf: { ok: boolean; record: string; warning?: string };
+  dmarc: { ok: boolean; record: string; warning?: string };
+  warnings: string[];
+  advice: string;
+  error?: string;
 }
 
 // ─── Settings ──────────────────────────────────────────
 
 export interface Settings {
   smtp_configured: boolean;
+  imap_configured: boolean;
   smtp_user: string;
   hunter_configured: boolean;
   tavily_configured: boolean;

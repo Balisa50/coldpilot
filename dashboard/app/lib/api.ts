@@ -39,6 +39,7 @@ import type {
   ActionLog,
   Stats,
   Settings,
+  DnsCheckResult,
 } from "./types";
 
 export const api = {
@@ -111,7 +112,9 @@ export const api = {
   getStats: () => request<Stats>("/api/stats"),
   getSettings: () => request<Settings>("/api/settings"),
   validateSmtp: () => request<{ ok: boolean; message: string }>("/api/settings/validate-smtp", { method: "POST" }),
+  validateImap: () => request<{ ok: boolean; message: string }>("/api/settings/validate-imap", { method: "POST" }),
   validateKeys: () => request<Record<string, { ok: boolean }>>("/api/settings/validate-keys", { method: "POST" }),
+  checkDns: () => request<DnsCheckResult>("/api/settings/check-dns", { method: "POST" }),
   updateSettings: (data: { smtp_user?: string; smtp_pass?: string; sender_name?: string; sender_email?: string }) =>
     request<{ ok: boolean }>("/api/settings", { method: "PATCH", body: JSON.stringify(data) }),
 
