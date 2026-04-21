@@ -460,14 +460,20 @@ export default function NewCampaignPage() {
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Live Campaign</h1>
-          {streamDone && (
+          <div className="flex items-center gap-3">
+            <a
+              href="/campaigns"
+              className="text-sm text-text-secondary hover:text-accent transition-colors"
+            >
+              View Campaigns
+            </a>
             <button
               onClick={handleNewCampaign}
               className="text-sm bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg transition-colors"
             >
               New Campaign
             </button>
-          )}
+          </div>
         </div>
 
         {/* Feed */}
@@ -782,20 +788,24 @@ export default function NewCampaignPage() {
             {prospects.map((p, i) => (
               <div
                 key={i}
-                className="border border-border rounded-lg p-3 space-y-2 relative group"
+                className="border border-border rounded-lg p-3 space-y-2"
               >
-                {prospects.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeProspect(i)}
-                    className="absolute top-2 right-2 text-text-muted hover:text-red text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Remove"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
+                {/* Row header: number + remove button */}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-text-muted">Company {i + 1}</span>
+                  {prospects.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeProspect(i)}
+                      className="text-text-muted hover:text-red transition-colors"
+                      title="Remove this company"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <input
