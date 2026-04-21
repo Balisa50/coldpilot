@@ -543,7 +543,43 @@ export default function NewCampaignPage() {
   // ────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">New Campaign</h1>
+      <h1 className="text-2xl font-bold mb-2">New Campaign</h1>
+      <p className="text-sm text-text-muted mb-6">
+        Run <span className="text-text-primary font-medium">Hunter Mode</span> to find and email business leads, or{" "}
+        <span className="text-text-primary font-medium">Seeker Mode</span> to apply for jobs at specific companies.
+        Pick a mode, configure your target, set your autonomy level, then launch.
+      </p>
+
+      {/* How to use guide */}
+      <div className="bg-surface border border-border rounded-xl p-4 mb-6">
+        <p className="text-xs text-text-muted uppercase tracking-wider font-medium mb-3">How to use ColdPilot</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-text-secondary">
+          <div className="space-y-2">
+            <p className="font-semibold text-text-primary">🎯 Hunter Mode</p>
+            <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
+              <li>Enter your company name and what you do</li>
+              <li>Set your target industry and job title (who you want to reach)</li>
+              <li>Choose autonomy level (Copilot = you approve each email)</li>
+              <li>Launch — ColdPilot finds contacts, researches them, writes personalised emails</li>
+              <li>Check <strong className="text-text-secondary">Inbox</strong> to approve or edit drafts</li>
+            </ol>
+          </div>
+          <div className="space-y-2">
+            <p className="font-semibold text-text-primary">💼 Seeker Mode</p>
+            <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
+              <li>Upload your CV and set your desired role</li>
+              <li>Add target companies (name, domain, contact name/email if known)</li>
+              <li>Choose autonomy level</li>
+              <li>Launch — ColdPilot writes tailored job-application emails for each company</li>
+              <li>Check <strong className="text-text-secondary">Campaigns</strong> to track status and open rates</li>
+            </ol>
+          </div>
+        </div>
+        <p className="text-xs text-text-muted mt-3 pt-3 border-t border-border">
+          <strong>Autonomy levels:</strong> Copilot = approve every email · Supervised = watch live · Full Auto = sends without asking.
+          Start with <strong>Dry Run</strong> checked to see emails without sending them.
+        </p>
+      </div>
 
       <form onSubmit={handleLaunch} className="space-y-6">
         {/* Mode toggle */}
