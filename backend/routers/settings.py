@@ -5,7 +5,7 @@ import os
 
 from fastapi import APIRouter
 
-from backend.services import smtp, hunter
+from backend.services import smtp, hunter, imap_poller
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -13,8 +13,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 @router.get("")
 async def get_settings():
     """Return which services are configured (not the keys themselves)."""
+    smtp_ok = bool(os.getenv("SMTP_USER") and os.getenv("SMTP_APP_PASSWORD"))
     return {
-        "smtp_configured": bool(os.getenv("SMTP_USER") and os.getenv("SMTP_APP_PASSWORD")),
+        "smtp_configured": smtp_ok,
+        # IMAP uses same credentials as SMTP — if SMTP is configured, IMAP is too
+        "imap_configured": smtp_ok,
         "smtp_user": os.getenv("SMTP_USER", ""),
         "hunter_configured": bool(os.getenv("HUNTER_API_KEY")),
         "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
@@ -25,6 +28,11 @@ async def get_settings():
 @router.post("/validate-smtp")
 async def validate_smtp():
     return await smtp.test_connection()
+
+
+@router.post("/validate-imap")
+async def validate_imap():
+    return await imap_poller.test_imap_connection()
 
 
 @router.post("/validate-keys")

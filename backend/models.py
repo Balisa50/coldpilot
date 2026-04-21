@@ -13,6 +13,14 @@ class IdealCustomerProfile(BaseModel):
     keywords: list[str] = []
 
 
+class TargetCompany(BaseModel):
+    company_name: str
+    company_domain: str | None = None
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_role: str | None = None
+
+
 class CampaignCreate(BaseModel):
     mode: str = Field(pattern="^(hunter|seeker)$")
     name: str
@@ -29,18 +37,6 @@ class CampaignCreate(BaseModel):
     cv_text: str | None = None
     desired_role: str | None = None
     target_companies: list[TargetCompany] | None = None
-
-
-class TargetCompany(BaseModel):
-    company_name: str
-    company_domain: str | None = None
-    contact_name: str | None = None
-    contact_email: str | None = None
-    contact_role: str | None = None
-
-
-# Fix forward reference
-CampaignCreate.model_rebuild()
 
 
 class CampaignUpdate(BaseModel):

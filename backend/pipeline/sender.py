@@ -37,10 +37,10 @@ async def send_email(email_record: dict, prospect: dict) -> dict:
 
     if result["success"]:
         await db.increment_daily_count()
-        await db.update_email(email_record["id"], {
-            "status": "sent",
-            "sent_at": db.now_iso(),
-        })
+        sent_updates: dict = {"status": "sent", "sent_at": db.now_iso()}
+        if result.get("message_id"):
+            sent_updates["message_id"] = result["message_id"]
+        await db.update_email(email_record["id"], sent_updates)
         await db.update_prospect(prospect["id"], {"status": "email_sent"})
         await db.log_action(
             "email_sent",

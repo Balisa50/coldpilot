@@ -13,9 +13,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
+import logging
+
 from backend import db
 from backend.pipeline import email_writer, sender, followup
 from backend.scheduler.warmup import update_daily_limit
+from backend.services import imap_poller
+
+logger = logging.getLogger(__name__)
 
 
 scheduler = AsyncIOScheduler()
@@ -28,7 +33,12 @@ async def check_followups() -> None:
     for fu in due:
         prospect = await db.get_prospect(fu["prospect_id"])
         if not prospect or not followup.should_followup(prospect):
+            reason = "no prospect" if not prospect else f"status={prospect.get('status')}"
+            logger.info("Cancelling follow-up %s for prospect %s (%s)",
+                        fu["id"], fu["prospect_id"], reason)
             await db.update_followup(fu["id"], "cancelled")
+            await db.log_action("followup_cancelled", fu["campaign_id"],
+                                fu["prospect_id"], detail={"reason": reason})
             continue
 
         if not await sender.can_send():
@@ -51,7 +61,10 @@ async def check_followups() -> None:
             original, prospect, fu["followup_number"]
         )
         if not fu_data:
+            logger.warning("email_writer returned nothing for follow-up %s — cancelling", fu["id"])
             await db.update_followup(fu["id"], "cancelled")
+            await db.log_action("followup_cancelled", fu["campaign_id"],
+                                fu["prospect_id"], detail={"reason": "email_writer_returned_none"})
             continue
 
         # Create the follow-up email record
@@ -124,6 +137,16 @@ async def reset_daily_counter() -> None:
     await db.log_action("daily_limit_set", detail={"limit": limit})
 
 
+async def poll_replies() -> None:
+    """Poll inbox for replies to ColdPilot emails. Runs every 5 minutes."""
+    try:
+        found = await imap_poller.poll_for_replies()
+        if found:
+            logger.info("Reply poll: %d new replies detected", found)
+    except Exception as exc:
+        logger.error("Reply poll job failed: %s", exc)
+
+
 def start_scheduler() -> None:
     """Register all jobs and start the scheduler."""
     scheduler.add_job(
@@ -136,6 +159,12 @@ def start_scheduler() -> None:
         send_approved_emails,
         IntervalTrigger(seconds=60),
         id="send_approved",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        poll_replies,
+        IntervalTrigger(minutes=5),
+        id="poll_replies",
         replace_existing=True,
     )
     scheduler.add_job(

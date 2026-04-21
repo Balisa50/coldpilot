@@ -45,8 +45,19 @@ async def init_db() -> None:
     try:
         await db.executescript(schema)
         await db.commit()
+        # Migrations for existing databases
+        await _migrate(db)
     finally:
         await db.close()
+
+
+async def _migrate(db: aiosqlite.Connection) -> None:
+    """Apply schema migrations to existing databases without dropping data."""
+    cols = await db.execute_fetchall("PRAGMA table_info(emails)")
+    col_names = {row["name"] for row in cols}
+    if "message_id" not in col_names:
+        await db.execute("ALTER TABLE emails ADD COLUMN message_id TEXT")
+        await db.commit()
 
 
 # ─── Campaigns ───────────────────────────────────────────────
@@ -268,7 +279,8 @@ async def update_email(eid: str, updates: dict) -> dict | None:
         sets = []
         vals = []
         for key in ("status", "sent_at", "replied_at", "bounce_reason",
-                     "subject", "body_html", "body_text", "personalisation_points"):
+                     "subject", "body_html", "body_text", "personalisation_points",
+                     "message_id"):
             if key in updates:
                 val = updates[key]
                 if key == "personalisation_points" and isinstance(val, list):
@@ -283,6 +295,59 @@ async def update_email(eid: str, updates: dict) -> dict | None:
         )
         await db.commit()
         return await get_email(eid)
+    finally:
+        await db.close()
+
+
+async def list_sent_emails_with_message_ids() -> list[dict]:
+    """Return all sent emails that have a message_id — used for reply matching."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            """SELECT e.id, e.prospect_id, e.campaign_id, e.subject,
+                      e.message_id, e.replied_at
+               FROM emails e
+               WHERE e.status = 'sent' AND e.message_id IS NOT NULL""",
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def list_all_sent_emails() -> list[dict]:
+    """Return all sent emails (with or without message_id) — broader reply matching fallback."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            """SELECT e.id, e.prospect_id, e.campaign_id, e.subject,
+                      e.message_id, e.replied_at
+               FROM emails e
+               WHERE e.status = 'sent'""",
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def mark_replied(email_id: str, prospect_id: str) -> None:
+    """Mark an email and its prospect as replied. Idempotent."""
+    db = await get_db()
+    try:
+        ts = now_iso()
+        await db.execute(
+            "UPDATE emails SET replied_at = ? WHERE id = ? AND replied_at IS NULL",
+            (ts, email_id),
+        )
+        await db.execute(
+            "UPDATE prospects SET status = 'replied', updated_at = ? WHERE id = ?",
+            (ts, prospect_id),
+        )
+        # Cancel any pending follow-ups for this prospect
+        await db.execute(
+            "UPDATE followup_schedule SET status = 'cancelled' WHERE prospect_id = ? AND status = 'pending'",
+            (prospect_id,),
+        )
+        await db.commit()
     finally:
         await db.close()
 

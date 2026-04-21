@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import make_msgid
 
 import aiosmtplib
 
@@ -41,10 +42,14 @@ async def send_email(
     else:
         from_header = from_addr
 
+    domain = cfg["username"].split("@")[-1] if "@" in cfg["username"] else "localhost"
+    msg_id = make_msgid(domain=domain)
+
     msg = MIMEMultipart("alternative")
     msg["From"] = from_header
     msg["To"] = to_email
     msg["Subject"] = subject
+    msg["Message-ID"] = msg_id
     msg.attach(MIMEText(body_text, "plain"))
     msg.attach(MIMEText(body_html, "html"))
 
@@ -57,7 +62,7 @@ async def send_email(
             password=cfg["password"],
             start_tls=True,
         )
-        return {"success": True}
+        return {"success": True, "message_id": msg_id}
     except aiosmtplib.SMTPResponseException as e:
         # 5xx = permanent failure (bounce)
         is_bounce = 500 <= e.code < 600

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS emails (
     status              TEXT NOT NULL DEFAULT 'draft'
                         CHECK(status IN ('draft', 'pending_approval', 'approved',
                                          'sent', 'bounced', 'failed')),
+    message_id          TEXT,           -- SMTP Message-ID for reply matching
     sent_at             TEXT,
     replied_at          TEXT,
     bounce_reason       TEXT,
