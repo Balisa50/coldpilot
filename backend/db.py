@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS action_log (
 
 CREATE TABLE IF NOT EXISTS daily_send_log (
     date TEXT PRIMARY KEY,
-    count INTEGER NOT NULL DEFAULT 0,
+    "count" INTEGER NOT NULL DEFAULT 0,
     limit_for_day INTEGER NOT NULL DEFAULT 5
 );
 
@@ -838,7 +838,7 @@ async def get_daily_send_count() -> tuple[int, int]:
     try:
         today = today_str()
         rows = await db.execute_fetchall(
-            "SELECT count, limit_for_day FROM daily_send_log WHERE date = ?",
+            'SELECT "count", limit_for_day FROM daily_send_log WHERE date = ?',
             (today,),
         )
         if rows:
@@ -846,7 +846,7 @@ async def get_daily_send_count() -> tuple[int, int]:
         # First send ever or new day — insert with default limit (INSERT OR IGNORE
         # is converted to ON CONFLICT DO NOTHING by _Conn._adapt for Postgres)
         await db.execute(
-            "INSERT OR IGNORE INTO daily_send_log (date, count, limit_for_day) VALUES (?, 0, 5)",
+            'INSERT OR IGNORE INTO daily_send_log (date, "count", limit_for_day) VALUES (?, 0, 5)',
             (today,),
         )
         await db.commit()
@@ -860,9 +860,9 @@ async def increment_daily_count() -> None:
     try:
         today = today_str()
         await db.execute(
-            """INSERT INTO daily_send_log (date, count, limit_for_day)
+            """INSERT INTO daily_send_log (date, "count", limit_for_day)
                VALUES (?, 1, 5)
-               ON CONFLICT(date) DO UPDATE SET count = count + 1""",
+               ON CONFLICT(date) DO UPDATE SET "count" = daily_send_log."count" + 1""",
             (today,),
         )
         await db.commit()
@@ -875,7 +875,7 @@ async def set_daily_limit(limit: int) -> None:
     try:
         today = today_str()
         await db.execute(
-            """INSERT INTO daily_send_log (date, count, limit_for_day)
+            """INSERT INTO daily_send_log (date, "count", limit_for_day)
                VALUES (?, 0, ?)
                ON CONFLICT(date) DO UPDATE SET limit_for_day = ?""",
             (today, limit, limit),
