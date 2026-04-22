@@ -140,17 +140,17 @@ async def process_prospect(
                         "reason": "This address previously unsubscribed — not contacting again.",
                     })
                     return
-                # Skip cooldown check for dry runs — they don't actually send,
-                # so repeatedly testing with the same address should work fine.
-                if not campaign.get("dry_run") and await db.was_recently_contacted(email_addr, within_days=30):
-                    await db.update_prospect(pid, {"status": "failed"})
-                    await db.log_action("suppressed_recently_contacted", cid, pid,
-                                        detail={"email": email_addr})
-                    await _publish(cid, "contact_skipped", {
-                        "prospect_id": pid,
-                        "reason": "Already emailed this address in the last 30 days.",
-                    })
-                    return
+                # 30-day cooldown — temporarily disabled for testing.
+                # Re-enable by uncommenting the block below.
+                # if not campaign.get("dry_run") and await db.was_recently_contacted(email_addr, within_days=30):
+                #     await db.update_prospect(pid, {"status": "failed"})
+                #     await db.log_action("suppressed_recently_contacted", cid, pid,
+                #                         detail={"email": email_addr})
+                #     await _publish(cid, "contact_skipped", {
+                #         "prospect_id": pid,
+                #         "reason": "Already emailed this address in the last 30 days.",
+                #     })
+                #     return
 
             # Stage 2: Research
             await _publish(cid, "stage_start", {"prospect_id": pid, "stage": "research"})
