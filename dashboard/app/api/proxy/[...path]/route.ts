@@ -51,6 +51,8 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
   const headers: Record<string, string> = {};
   const ct = req.headers.get("content-type");
   if (ct) headers["Content-Type"] = ct;
+  const auth = req.headers.get("authorization");
+  if (auth) headers["Authorization"] = auth;
 
   try {
     const body = req.method !== "GET" ? await req.arrayBuffer() : undefined;
