@@ -12,9 +12,10 @@ import type {
   Email,
 } from "./lib/types";
 
-const CV_TEXT_KEY = "coldpilot:cv:text";
-const CV_NAME_KEY = "coldpilot:cv:name";
-const FORM_KEY   = "coldpilot:form";
+const CV_TEXT_KEY    = "coldpilot:cv:text";
+const CV_NAME_KEY    = "coldpilot:cv:name";
+const FORM_KEY       = "coldpilot:form";
+const GUIDE_HIDE_KEY = "coldpilot:guide:hidden";
 
 // ── Prospect Row type ──
 interface ProspectRow {
@@ -75,6 +76,7 @@ export default function NewCampaignPage() {
   const [editingBody, setEditingBody] = useState("");
   const [approving, setApproving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const feedIdRef = useRef(0);
 
@@ -113,15 +115,26 @@ if (f.companyName) setCompanyName(f.companyName);
     setHydrated(true);
   }, []);
 
-  // ── Load saved CV from localStorage on mount ──
+  // ── Load saved CV + guide preference from localStorage on mount ──
   useEffect(() => {
     try {
       const savedText = localStorage.getItem(CV_TEXT_KEY);
       const savedName = localStorage.getItem(CV_NAME_KEY);
       if (savedText) setCvText(savedText);
       if (savedName) setCvFileName(savedName);
+      if (localStorage.getItem(GUIDE_HIDE_KEY) === "1") setShowGuide(false);
     } catch {}
   }, []);
+
+  function dismissGuide() {
+    setShowGuide(false);
+    try { localStorage.setItem(GUIDE_HIDE_KEY, "1"); } catch {}
+  }
+
+  function restoreGuide() {
+    setShowGuide(true);
+    try { localStorage.removeItem(GUIDE_HIDE_KEY); } catch {}
+  }
 
   // ── Persist campaign state to sessionStorage ──
   useEffect(() => {
@@ -634,35 +647,62 @@ if (f.companyName) setCompanyName(f.companyName);
       </p>
 
       {/* How to use guide */}
-      <div className="bg-surface border border-border rounded-xl p-4 mb-6">
-        <p className="text-xs text-text-muted uppercase tracking-wider font-medium mb-3">How to use ColdPilot</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-text-secondary">
-          <div className="space-y-2">
-            <p className="font-semibold text-text-primary flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Hunter Mode</p>
-            <p className="text-text-muted text-xs italic">You send. The target companies receive.</p>
-            <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
-              <li>Enter YOUR company name and what you do</li>
-              <li>Add the companies you want to pitch to (your prospects)</li>
-              <li>Choose autonomy level (Copilot = you approve each email before it sends)</li>
-              <li>Launch: ColdPilot finds a contact at each company, researches them and writes the email</li>
-              <li>The contact at that company receives the email from your inbox</li>
-            </ol>
+      {showGuide ? (
+        <div className="bg-surface border border-border rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-text-muted uppercase tracking-wider font-medium">How to use ColdPilot</p>
+            <button
+              type="button"
+              onClick={dismissGuide}
+              className="text-text-muted hover:text-text-secondary transition-colors p-1 rounded"
+              title="Dismiss guide"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <div className="space-y-2">
-            <p className="font-semibold text-text-primary flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> Seeker Mode</p>
-            <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
-              <li>Upload your CV and set your desired role</li>
-              <li>Add target companies (name, domain, contact name/email if known)</li>
-              <li>Choose autonomy level</li>
-              <li>Launch: ColdPilot writes tailored job-application emails for each company</li>
-              <li>Check <strong className="text-text-secondary">Campaigns</strong> to track status and open rates</li>
-            </ol>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-text-secondary">
+            <div className="space-y-2">
+              <p className="font-semibold text-text-primary flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Hunter Mode</p>
+              <p className="text-text-muted text-xs italic">You send. The target companies receive.</p>
+              <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
+                <li>Enter YOUR company name and what you do</li>
+                <li>Add the companies you want to pitch to (your prospects)</li>
+                <li>Choose autonomy level (Copilot = you approve each email before it sends)</li>
+                <li>Launch: ColdPilot finds a contact at each company, researches them and writes the email</li>
+                <li>The contact at that company receives the email from your inbox</li>
+              </ol>
+            </div>
+            <div className="space-y-2">
+              <p className="font-semibold text-text-primary flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> Seeker Mode</p>
+              <ol className="list-decimal list-inside space-y-1 text-text-muted leading-relaxed">
+                <li>Upload your CV and set your desired role</li>
+                <li>Add target companies (name, domain, contact name/email if known)</li>
+                <li>Choose autonomy level</li>
+                <li>Launch: ColdPilot writes tailored job-application emails for each company</li>
+                <li>Check <strong className="text-text-secondary">Campaigns</strong> to track status and open rates</li>
+              </ol>
+            </div>
           </div>
+          <p className="text-xs text-text-muted mt-3 pt-3 border-t border-border">
+            <strong>Autonomy levels:</strong> Copilot = approve every email · Supervised = watch live · Full Auto = sends without asking.
+          </p>
         </div>
-        <p className="text-xs text-text-muted mt-3 pt-3 border-t border-border">
-          <strong>Autonomy levels:</strong> Copilot = approve every email · Supervised = watch live · Full Auto = sends without asking.
-        </p>
-      </div>
+      ) : (
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={restoreGuide}
+            className="text-xs text-text-muted hover:text-accent transition-colors flex items-center gap-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            How to use ColdPilot
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleLaunch} className="space-y-6">
         {/* Mode toggle */}
