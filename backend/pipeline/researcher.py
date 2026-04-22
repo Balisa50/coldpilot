@@ -12,10 +12,12 @@ from backend.services import tavily, groq_client
 
 SUMMARISE_SYSTEM = """You are a research assistant preparing notes for a cold email.
 Given raw search results about a company, extract:
-1. A 2-sentence company summary (what they do, how big)
-2. 2-3 recent news items or developments (product launches, funding, hiring, partnerships)
-3. 1-2 potential pain points or challenges they might face
-4. 1-2 opportunities where the sender could help
+1. A 2-sentence company summary (what they do, rough size/stage)
+2. 2-3 RECENT AND SPECIFIC news items from the last 6-12 months — product launches, funding rounds, new hires, partnerships, expansions. Include approximate dates where available (e.g. "launched X in March 2025", "raised $Y in late 2024"). Do NOT write vague summaries like "the company is growing" — cite the actual event.
+3. 1-2 pain points or challenges that are visible from the news
+4. 1-2 opportunities where an outside company could genuinely help
+
+If you cannot find any recent specific news, say so honestly — do NOT invent events.
 
 Output ONLY valid JSON with this exact structure:
 {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../lib/api";
-import type { ActionLog, Stats } from "../lib/types";
+import type { ActionLog } from "../lib/types";
 
 // Dot colour + label colour keyed by action string
 const ACTION_STYLE: Record<string, { dot: string; text: string }> = {
@@ -56,31 +56,8 @@ function formatDetail(raw: string | null): string {
   }
 }
 
-function StatCard({
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="bg-surface rounded-xl border border-border p-4">
-      <p className="text-xs text-text-muted uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${accent ? "text-accent" : "text-text-primary"}`}>
-        {value}
-      </p>
-      {sub && <p className="text-xs text-text-muted mt-1">{sub}</p>}
-    </div>
-  );
-}
-
 export default function ActivityPage() {
   const [activity, setActivity] = useState<ActionLog[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -88,9 +65,8 @@ export default function ActivityPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [logs, s] = await Promise.all([api.listActivity(500), api.getStats()]);
+      const logs = await api.listActivity(500);
       setActivity(logs);
-      setStats(s);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load activity");
     } finally {
@@ -149,29 +125,6 @@ export default function ActivityPage() {
           Refresh
         </button>
       </div>
-
-      {/* Stats row — reply_rate already comes as a percentage from the backend */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <StatCard
-            label="Sent Today"
-            value={stats.sent_today}
-            sub={`limit: ${stats.limit_today}/day`}
-          />
-          <StatCard label="Total Sent" value={stats.total_sent} />
-          <StatCard
-            label="Reply Rate"
-            value={`${stats.reply_rate.toFixed(1)}%`}
-            sub={`${stats.total_replied} repl${stats.total_replied === 1 ? "y" : "ies"}`}
-          />
-          <StatCard
-            label="Pending Review"
-            value={stats.pending_approval}
-            sub={stats.pending_approval > 0 ? "needs your attention" : "all clear"}
-            accent={stats.pending_approval > 0}
-          />
-        </div>
-      )}
 
       {/* Filter */}
       {activity.length > 0 && (

@@ -63,8 +63,8 @@ async def research_company(
     """
     domain_hint = f" site:{company_domain}" if company_domain else ""
     queries = [
-        f'"{company_name}" recent news challenges{domain_hint}',
-        f'"{company_name}" hiring team culture product launch',
+        f'"{company_name}" 2024 2025 news announcement launch partnership funding{domain_hint}',
+        f'"{company_name}" 2025 hiring product update challenge problem',
     ]
 
     all_results = []

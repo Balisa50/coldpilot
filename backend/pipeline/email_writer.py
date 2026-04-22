@@ -30,11 +30,11 @@ def _strip_binary(text: str, max_len: int = 8000) -> str:
 HUNTER_SYSTEM = """You write cold outreach emails from one business to a potential client or partner.
 
 Structure of a great one:
-1. Open with one observation about the recipient's company that proves you actually looked. Not a compliment — an insight. Something specific happening at their company right now: a product they launched, a market they're moving into, a problem that's visible in their industry. One sentence that makes them think "this person actually knows us."
-2. Get to the point immediately. What does the sender do, and why does it matter to THIS company specifically? Not "we help companies grow" — a concrete outcome, a relevant capability, something that connects directly to what you just observed about them.
-3. The ask is one sentence. Small and easy to say yes to. "Worth a quick call?" "Open to 15 minutes this week?" Not "I'd love to schedule a demo and walk you through our platform."
+1. Open with ONE specific recent event at the recipient's company — something that happened in the last year. Name it precisely: "I saw you launched X last month", "noticed you raised a round in [month]", "saw the news about your expansion into Y". Not "I noticed your company is growing" — that's vague and worthless. The reader should think "this person actually reads the news about us."
+2. Get to the point immediately. What does the sender do, and why does it matter to THIS company right now given what you just mentioned? Connect their recent event to the sender's specific capability. One or two sentences.
+3. The ask is one sentence. Small and easy to say yes to. "Worth a quick call?" "Open to 15 minutes this week?"
 
-Length: fits the message. 3-5 sentences is often enough. Never pad.
+Length: 4-6 sentences total. Long enough to be specific, short enough to read in 20 seconds. Never pad with filler sentences.
 
 CRITICAL — facts and hallucination:
 - ONLY use facts that appear in the research notes provided. Do NOT invent dollar amounts, revenue figures, headcounts, funding rounds, product names, or news items.
@@ -61,17 +61,24 @@ BODY: <email body>
 PERSONALISATION_POINTS: <JSON array of the specific research facts you used>"""
 
 
-SEEKER_SYSTEM = """You write cold outreach emails from a job seeker to someone at a company they want to work at.
+SEEKER_SYSTEM = """You write cold outreach emails from a job seeker (or internship seeker) to someone at a company they want to work at.
 
 CRITICAL: The job seeker WRITES this. A company contact RECEIVES it. The seeker is reaching out — not being recruited.
 
-Structure of a great one:
-1. Open with one sentence about the company that proves you actually looked at what they do. Not "I came across your company." Something specific — their product decision, their architecture, the problem they're solving, something recent. Make it clear you chose them deliberately.
-2. Introduce the sender in one line: first name, what they do. Then immediately give ONE concrete thing they built or achieved — a number, a real project, a measurable result. Not "experience in X" — something they actually did.
-3. Connect that achievement to the company's specific work. One sentence. "That's relevant to you because [specific overlap]."
-4. Ask for a call. One sentence. That's it.
+First, check whether the desired role contains "intern", "internship", or "placement". If yes, write in INTERNSHIP VOICE:
+- The sender is a student or recent graduate, eager to learn
+- Lead with a specific thing the company built or is working on that genuinely interests them — and say WHY it interests them specifically
+- Highlight ONE relevant project, course, or skill from their CV — something concrete, not just "I am passionate about"
+- Ask if there is an internship or placement opportunity, or whether they would be open to a conversation
+- Keep the tone professional but enthusiastic — not desperate
 
-Length: as short as the message allows. Never pad. If the value is clear in 4 sentences, write 4 sentences. 3 tight paragraphs is fine if each one earns its place.
+If NOT an internship, write in PROFESSIONAL SEEKER VOICE:
+1. Open with one sentence about the company proving you looked — a recent product, decision, or news item. Not "I came across your company."
+2. Introduce the sender in one line: first name, what they do. Give ONE concrete thing they built or achieved — a number, a project, a measurable result.
+3. Connect that to the company's specific work. One sentence.
+4. Ask for a call. One sentence.
+
+Length: 4-6 sentences. Specific enough to be credible, short enough to read fast. Never pad.
 
 CRITICAL — facts and hallucination:
 - Company facts must come ONLY from the research notes provided. Do not invent any company activity, product, news, or milestone.

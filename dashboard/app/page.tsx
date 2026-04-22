@@ -55,7 +55,16 @@ export default function NewCampaignPage() {
   const [cvUploading, setCvUploading] = useState(false);
   const [desiredRole, setDesiredRole] = useState("");
   const [prospects, setProspects] = useState<ProspectRow[]>([{ ...EMPTY_ROW }]);
+  const [expandedContacts, setExpandedContacts] = useState<Set<number>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+
+  function toggleContactExpand(i: number) {
+    setExpandedContacts((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
 
   // ── Live feed state ──
   const [launched, setLaunched] = useState(false);
@@ -852,32 +861,78 @@ export default function NewCampaignPage() {
                   <input
                     value={p.domain}
                     onChange={(e) => updateProspect(i, "domain", e.target.value)}
-                    placeholder="Domain (optional)"
+                    placeholder="Domain e.g. qmoney.gm"
                     className="input"
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    value={p.name}
-                    onChange={(e) => updateProspect(i, "name", e.target.value)}
-                    placeholder="Contact name"
-                    className="input"
-                  />
-                  <input
-                    value={p.email}
-                    onChange={(e) => updateProspect(i, "email", e.target.value)}
-                    placeholder="Contact email"
-                    type="email"
-                    className="input"
-                  />
-                  <input
-                    value={p.role}
-                    onChange={(e) => updateProspect(i, "role", e.target.value)}
-                    placeholder="Role/title"
-                    className="input"
-                  />
-                </div>
+                {/* Contact fields: always visible in Seeker, optional toggle in Hunter */}
+                {mode === "seeker" ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      value={p.name}
+                      onChange={(e) => updateProspect(i, "name", e.target.value)}
+                      placeholder="Contact name"
+                      className="input"
+                    />
+                    <input
+                      value={p.email}
+                      onChange={(e) => updateProspect(i, "email", e.target.value)}
+                      placeholder="Contact email"
+                      type="email"
+                      className="input"
+                    />
+                    <input
+                      value={p.role}
+                      onChange={(e) => updateProspect(i, "role", e.target.value)}
+                      placeholder="Role/title"
+                      className="input"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {expandedContacts.has(i) ? (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            value={p.name}
+                            onChange={(e) => updateProspect(i, "name", e.target.value)}
+                            placeholder="Contact name"
+                            className="input"
+                          />
+                          <input
+                            value={p.email}
+                            onChange={(e) => updateProspect(i, "email", e.target.value)}
+                            placeholder="Contact email"
+                            type="email"
+                            className="input"
+                          />
+                          <input
+                            value={p.role}
+                            onChange={(e) => updateProspect(i, "role", e.target.value)}
+                            placeholder="Role/title"
+                            className="input"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleContactExpand(i)}
+                          className="text-xs text-text-muted hover:text-text-secondary transition-colors"
+                        >
+                          Hide contact fields
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => toggleContactExpand(i)}
+                        className="text-xs text-accent hover:text-accent-hover transition-colors"
+                      >
+                        + I already know who to contact (optional)
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>

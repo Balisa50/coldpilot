@@ -17,15 +17,6 @@ const STATUS_BADGE: Record<string, string> = {
   completed: "bg-border text-text-secondary",
 };
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="bg-surface rounded-xl border border-border p-4">
-      <p className="text-xs text-text-muted uppercase tracking-wider mb-1">{label}</p>
-      <p className="text-2xl font-bold text-text-primary">{value}</p>
-    </div>
-  );
-}
-
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -92,45 +83,34 @@ export default function CampaignsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-text-primary">Campaigns</h1>
-          <p className="text-sm text-text-muted mt-1">
-            {campaigns.length === 0
-              ? "No campaigns yet"
-              : `${campaigns.length} campaign${campaigns.length !== 1 ? "s" : ""}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setLoading(true); load(); }}
-            className="text-xs text-text-secondary hover:text-accent transition-colors"
-          >
-            Refresh
-          </button>
-          <Link
-            href="/"
-            className="bg-accent hover:bg-accent-hover text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          >
-            + New Campaign
-          </Link>
-        </div>
+        <p className="text-sm text-text-muted">
+          {campaigns.length === 0
+            ? "No campaigns yet"
+            : `${campaigns.length} campaign${campaigns.length !== 1 ? "s" : ""}`}
+        </p>
+        <button
+          onClick={() => { setLoading(true); load(); }}
+          className="text-xs text-text-secondary hover:text-accent transition-colors"
+        >
+          Refresh
+        </button>
       </div>
 
-      {/* Stats row — reply_rate & open_rate already arrive as percentages */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <StatCard label="Sent Today" value={`${stats.sent_today} / ${stats.limit_today}`} />
-          <StatCard label="Total Sent" value={stats.total_sent} />
-          <StatCard label="Opened" value={stats.total_opened ?? 0} />
-          <StatCard label="Open Rate" value={`${(stats.open_rate ?? 0).toFixed(1)}%`} />
-          <StatCard label="Reply Rate" value={`${stats.reply_rate.toFixed(1)}%`} />
-        </div>
+      {/* Subtle stats line */}
+      {stats && stats.total_sent > 0 && (
+        <p className="text-xs text-text-muted">
+          {stats.sent_today} of {stats.limit_today} sent today
+          {stats.total_sent > 0 && <> · {stats.total_sent} total</>}
+          {stats.total_replied > 0 && <> · {stats.reply_rate.toFixed(1)}% replied</>}
+          {stats.pending_approval > 0 && (
+            <span className="text-accent"> · {stats.pending_approval} waiting in inbox</span>
+          )}
+        </p>
       )}
 
       {/* Campaign list */}
       {campaigns.length === 0 ? (
         <div className="text-center py-20">
-          <p className="text-text-muted text-sm mb-4">No campaigns yet.</p>
           <Link
             href="/"
             className="bg-accent hover:bg-accent-hover text-white text-sm px-5 py-2.5 rounded-lg transition-colors"
