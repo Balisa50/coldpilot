@@ -159,7 +159,7 @@ export default function SettingsPage() {
             />
             {isAlreadyConfigured && (
               <span className="text-xs text-text-muted mt-1 block">
-                Leave blank to keep your existing password.
+                Only fill this in if you want to update your password.
               </span>
             )}
           </label>
