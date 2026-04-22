@@ -245,10 +245,9 @@ export default function NewCampaignPage() {
 
   // ── Handle completed or errored pending emails ──
   const handleClearCampaign = useCallback(() => {
-    try {
-      sessionStorage.removeItem("coldpilot_campaign");
-      sessionStorage.removeItem(FORM_KEY);
-    } catch {}
+    // Only clear the live campaign state — keep form inputs so the user
+    // can tweak and re-launch without re-entering everything.
+    try { sessionStorage.removeItem("coldpilot_campaign"); } catch {}
     setLaunched(false);
     setCampaignId(null);
     setFeed([]);
@@ -256,16 +255,6 @@ export default function NewCampaignPage() {
     setPendingEmail(null);
     setError("");
     setSaving(false);
-    // Reset form to blank
-    setMode("hunter");
-    setAutonomy("copilot");
-    setDryRun(true);
-    setCompanyName("");
-    setCompanyDesc("");
-    setTargetIndustry("");
-    setTargetJobTitle("");
-    setDesiredRole("");
-    setProspects([{ ...EMPTY_ROW }]);
   }, []);
 
   // ── SSE listener ──
