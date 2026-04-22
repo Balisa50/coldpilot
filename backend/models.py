@@ -131,9 +131,7 @@ class StatsResponse(BaseModel):
     total_sent: int
     total_replied: int
     total_bounced: int
-    total_opened: int = 0
     reply_rate: float
-    open_rate: float = 0.0
     bounce_rate: float
     pending_approval: int
     active_campaigns: int

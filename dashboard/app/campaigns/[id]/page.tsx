@@ -182,7 +182,6 @@ export default function CampaignDetailPage() {
 
   const pendingCount = emails.filter((e) => e.status === "pending_approval").length;
   const sentCount = emails.filter((e) => e.status === "sent").length;
-  const openedCount = emails.filter((e) => e.opened_at).length;
   const repliedCount = prospects.filter((p) => p.status === "replied").length;
 
   return (
@@ -232,7 +231,6 @@ export default function CampaignDetailPage() {
             {[
               { label: "Prospects", value: prospects.length },
               { label: "Sent", value: sentCount },
-              { label: "Opened", value: openedCount },
               { label: "Replied", value: repliedCount },
             ].map((s) => (
               <div key={s.label} className="text-center">
@@ -370,20 +368,6 @@ export default function CampaignDetailPage() {
                       <p className="text-xs text-text-secondary truncate mt-0.5">{e.subject}</p>
                     </div>
 
-                    {/* Open / click tracking badges */}
-                    <div className="shrink-0 flex items-center gap-1.5 hidden sm:flex">
-                      {e.opened_at && (
-                        <span className="text-xs bg-green/10 text-green px-1.5 py-0.5 rounded">
-                          opened
-                        </span>
-                      )}
-                      {e.clicked_at && (
-                        <span className="text-xs bg-accent/10 text-accent px-1.5 py-0.5 rounded">
-                          clicked
-                        </span>
-                      )}
-                    </div>
-
                     <div className="shrink-0 text-right hidden sm:block">
                       <p className="text-xs text-text-muted">{e.email_type.replace(/_/g, " ")}</p>
                       <p className="text-xs text-text-muted mt-0.5">
@@ -442,11 +426,8 @@ export default function CampaignDetailPage() {
                       {e.sent_at && (
                         <p className="text-xs text-text-muted">
                           Sent {new Date(e.sent_at).toLocaleString()}
-                          {e.opened_at && (
-                            <> · Opened {new Date(e.opened_at).toLocaleString()}</>
-                          )}
-                          {e.clicked_at && (
-                            <> · Clicked {new Date(e.clicked_at).toLocaleString()}</>
+                          {e.replied_at && (
+                            <> · Replied {new Date(e.replied_at).toLocaleString()}</>
                           )}
                         </p>
                       )}

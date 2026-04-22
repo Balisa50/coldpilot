@@ -2,28 +2,32 @@
 Stage 5: Send emails via SMTP, respecting daily limits and spacing.
 
 Before every send we inject:
-  - An unsubscribe footer (plain text + HTML) — CAN-SPAM compliance
-  - A 1×1 open-tracking pixel (HTML only)
+  - An unsubscribe footer (plain text + HTML) — CAN-SPAM / Gmail 2024 required
+
+Open tracking (pixel) and click tracking (link wrapping) have been removed:
+  - Pixels are blocked by default in Gmail, Outlook, and Apple Mail.
+    Apple Mail pre-loads all images — every email looks "opened". Unreliable.
+  - Click-wrapping rewrites every href through the backend. Spam filters flag
+    this pattern and recipients see suspicious redirect URLs. Not worth it.
+
+Replied tracking is handled via IMAP polling — that's real, reliable signal.
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import random
-import re
-from urllib.parse import quote as _url_quote
 
 from backend import db
 from backend.services import smtp
 
 
-def _inject_tracking(
+def _inject_footer(
     body_html: str,
     body_text: str,
-    email_id: str,
     prospect_id: str,
 ) -> tuple[str, str]:
-    """Append unsubscribe footer and open-tracking pixel to outgoing email.
+    """Append unsubscribe footer to outgoing email.
 
     The stored email record stays clean; only the bytes sent over SMTP are modified.
     """
@@ -32,10 +36,9 @@ def _inject_tracking(
     sender_co   = os.getenv("SENDER_COMPANY", "").strip()
     sender_web  = os.getenv("SENDER_WEBSITE", "").strip()
 
-    unsub_url  = f"{backend}/unsubscribe/{prospect_id}"
-    pixel_url  = f"{backend}/track/open/{email_id}"
+    unsub_url = f"{backend}/unsubscribe/{prospect_id}"
 
-    # ── Signature block (appended only if SENDER_NAME is configured) ──────
+    # ── Signature block ────────────────────────────────────────────────────
     sig_parts: list[str] = []
     if sender_name:
         sig_parts.append(sender_name)
@@ -46,42 +49,20 @@ def _inject_tracking(
 
     sig_text = "\n\n" + "\n".join(sig_parts) if sig_parts else ""
     sig_html = (
-        "<br><br>"
-        + "".join(f"<div>{p}</div>" for p in sig_parts)
+        "<br><br>" + "".join(f"<div>{p}</div>" for p in sig_parts)
         if sig_parts else ""
     )
 
     # ── Plain-text footer ──────────────────────────────────────────────────
-    new_text = body_text + sig_text + (
-        "\n\n"
-        "---\n"
-        f"To unsubscribe: {unsub_url}"
-    )
+    new_text = body_text + sig_text + "\n\n---\n" + f"To unsubscribe: {unsub_url}"
 
-    # ── Wrap links in the HTML body with click tracking ─────────────────────
-    # Must happen on body_html BEFORE appending the footer (which contains
-    # the unsubscribe link — we don't want that wrapped).
-    def _wrap_link(m: re.Match) -> str:
-        url = m.group(1)
-        # Don't wrap: unsubscribe, mailto, tel, anchors, already-tracked links
-        if (not url or url.startswith(("mailto:", "tel:", "#", f"{backend}/"))
-                or "unsubscribe" in url):
-            return m.group(0)
-        tracked = f"{backend}/track/click/{email_id}?url={_url_quote(url, safe='')}"
-        return f'href="{tracked}"'
-
-    tracked_body = re.sub(r'href="([^"]*)"', _wrap_link, body_html)
-
-    # ── HTML footer — minimal, no tracking pixel, no marketing language ────
-    # Tracking pixels are one of the strongest spam signals. Removing them
-    # improves deliverability significantly. The unsubscribe link satisfies
-    # CAN-SPAM and Gmail/Yahoo 2024 bulk sender requirements.
+    # ── HTML footer ────────────────────────────────────────────────────────
     footer_html = (
         '<p style="color:#9ca3af;font-size:11px;margin-top:24px;">'
         f'<a href="{unsub_url}" style="color:#9ca3af;">Unsubscribe</a>'
         "</p>"
     )
-    new_html = tracked_body + sig_html + footer_html
+    new_html = body_html + sig_html + footer_html
 
     return new_html, new_text
 
@@ -120,12 +101,11 @@ async def send_email(
     )
     unsub_url   = f"{backend}/unsubscribe/{prospect['id']}"
 
-    # Inject unsubscribe footer + click tracking right before sending.
+    # Inject unsubscribe footer right before sending.
     # The DB record stays clean; only the bytes over the wire are augmented.
-    body_html, body_text = _inject_tracking(
+    body_html, body_text = _inject_footer(
         email_record["body_html"],
         email_record["body_text"],
-        email_record["id"],
         prospect["id"],
     )
 

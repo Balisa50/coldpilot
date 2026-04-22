@@ -721,32 +721,6 @@ async def mark_replied(email_id: str, prospect_id: str) -> None:
         await db.close()
 
 
-async def mark_opened(email_id: str) -> None:
-    """Record first open of an email (idempotent — only sets once)."""
-    db = await get_db()
-    try:
-        await db.execute(
-            "UPDATE emails SET opened_at = ? WHERE id = ? AND opened_at IS NULL",
-            (now_iso(), email_id),
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def mark_clicked(email_id: str) -> None:
-    """Record first link click in an email (idempotent — only sets once)."""
-    db = await get_db()
-    try:
-        await db.execute(
-            "UPDATE emails SET clicked_at = ? WHERE id = ? AND clicked_at IS NULL",
-            (now_iso(), email_id),
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
-
 async def mark_unsubscribed(prospect_id: str) -> None:
     """Mark a prospect as opted out. Cancels pending follow-ups."""
     db = await get_db()
@@ -972,9 +946,6 @@ async def get_stats() -> dict:
         total_bounced = (await db.execute_fetchall(
             "SELECT COUNT(*) as c FROM emails WHERE status = 'bounced'"
         ))[0]["c"]
-        total_opened = (await db.execute_fetchall(
-            "SELECT COUNT(*) as c FROM emails WHERE opened_at IS NOT NULL"
-        ))[0]["c"]
         pending_approval = (await db.execute_fetchall(
             "SELECT COUNT(*) as c FROM emails WHERE status = 'pending_approval'"
         ))[0]["c"]
@@ -987,9 +958,7 @@ async def get_stats() -> dict:
             "total_sent": total_sent,
             "total_replied": total_replied,
             "total_bounced": total_bounced,
-            "total_opened": total_opened,
             "reply_rate": round(total_replied / max(total_sent, 1) * 100, 1),
-            "open_rate": round(total_opened / max(total_sent, 1) * 100, 1),
             "bounce_rate": round(total_bounced / max(total_sent, 1) * 100, 1),
             "pending_approval": pending_approval,
             "active_campaigns": active_campaigns,

@@ -111,8 +111,6 @@ export interface Email {
   message_id: string | null;
   sent_at: string | null;
   replied_at: string | null;
-  opened_at: string | null;
-  clicked_at: string | null;
   bounce_reason: string | null;
   created_at: string;
   prospect?: Prospect;
@@ -138,9 +136,7 @@ export interface Stats {
   total_sent: number;
   total_replied: number;
   total_bounced: number;
-  total_opened: number;
   reply_rate: number;
-  open_rate: number;
   bounce_rate: number;
   pending_approval: number;
   active_campaigns: number;

@@ -1,59 +1,31 @@
 """
 Email tracking endpoints.
 
-/track/open/{email_id}       — 1×1 GIF, marks email as opened
-/track/click/{email_id}      — 302 redirect, marks link clicked
-/unsubscribe/{prospect_id}   — HTML unsubscribe confirmation page
-/api/unsubscribe/{prospect_id} — JSON API version for programmatic opt-out
+Open and click tracking have been removed:
+  - Open pixels are blocked by default in Gmail, Outlook, Apple Mail.
+    Apple Mail pre-loads all images, making every email look "opened" —
+    the data is noise, not signal.
+  - Click-wrapping rewrites every link through the backend, which is a
+    strong spam filter signal and breaks link trust for recipients.
+
+What remains:
+  /unsubscribe/{prospect_id}   — HTML unsubscribe page (CAN-SPAM required)
+  /api/unsubscribe/{prospect_id} — JSON API version for programmatic opt-out
+
+Replied tracking is handled separately via IMAP polling — that's real signal.
 """
 from __future__ import annotations
 
-import base64
 import logging
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
 
 from backend import db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["tracking"])
-
-# Minimal 1×1 transparent GIF (43 bytes)
-_GIF = base64.b64decode(
-    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-)
-
-_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
-
-
-# ─── Open tracking ────────────────────────────────────────────────────────────
-
-@router.get("/track/open/{email_id}")
-async def track_open(email_id: str) -> Response:
-    """Return a 1×1 transparent GIF and record the first open."""
-    try:
-        await db.mark_opened(email_id)
-        await db.log_action("email_opened", email_id=email_id)
-    except Exception as exc:
-        logger.debug("track_open failed for %s: %s", email_id, exc)
-    return Response(content=_GIF, media_type="image/gif", headers=_NO_CACHE)
-
-
-# ─── Click tracking ───────────────────────────────────────────────────────────
-
-@router.get("/track/click/{email_id}")
-async def track_click(email_id: str, url: str = "") -> Response:
-    """Record a link click, then redirect to the target URL."""
-    try:
-        await db.mark_clicked(email_id)
-        await db.log_action("email_clicked", email_id=email_id, detail={"url": url[:500]})
-    except Exception as exc:
-        logger.debug("track_click failed for %s: %s", email_id, exc)
-    if url:
-        return RedirectResponse(url=url, status_code=302)
-    return Response(status_code=204)
 
 
 # ─── Unsubscribe ──────────────────────────────────────────────────────────────
