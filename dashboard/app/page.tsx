@@ -38,7 +38,7 @@ export default function NewCampaignPage() {
   // ── Form state ──
   const [mode, setMode] = useState<CampaignMode>("hunter");
   const [autonomy, setAutonomy] = useState<AutonomyLevel>("copilot");
-  const [dryRun, setDryRun] = useState(true);
+  const [dryRun] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -100,8 +100,7 @@ export default function NewCampaignPage() {
         const f = JSON.parse(formRaw);
         if (f.mode) setMode(f.mode);
         if (f.autonomy) setAutonomy(f.autonomy);
-        if (typeof f.dryRun === "boolean") setDryRun(f.dryRun);
-        if (f.companyName) setCompanyName(f.companyName);
+if (f.companyName) setCompanyName(f.companyName);
         if (f.companyDesc) setCompanyDesc(f.companyDesc);
         if (f.targetIndustry) setTargetIndustry(f.targetIndustry);
         if (f.targetJobTitle) setTargetJobTitle(f.targetJobTitle);
@@ -149,12 +148,12 @@ export default function NewCampaignPage() {
     if (!hydrated) return;
     try {
       sessionStorage.setItem(FORM_KEY, JSON.stringify({
-        mode, autonomy, dryRun,
+        mode, autonomy,
         companyName, companyDesc, targetIndustry, targetJobTitle,
         desiredRole, prospects,
       }));
     } catch {}
-  }, [hydrated, mode, autonomy, dryRun, companyName, companyDesc,
+  }, [hydrated, mode, autonomy, companyName, companyDesc,
       targetIndustry, targetJobTitle, desiredRole, prospects]);
 
   // Auto-scroll feed
@@ -662,7 +661,6 @@ export default function NewCampaignPage() {
         </div>
         <p className="text-xs text-text-muted mt-3 pt-3 border-t border-border">
           <strong>Autonomy levels:</strong> Copilot = approve every email · Supervised = watch live · Full Auto = sends without asking.
-          Start with <strong>Dry Run</strong> checked to see emails without sending them.
         </p>
       </div>
 
@@ -993,22 +991,6 @@ export default function NewCampaignPage() {
             ))}
           </div>
         </div>
-
-        {/* Dry Run */}
-        <label className="flex items-center gap-3 text-sm cursor-pointer select-none bg-surface rounded-xl border border-border p-4">
-          <input
-            type="checkbox"
-            checked={dryRun}
-            onChange={(e) => setDryRun(e.target.checked)}
-            className="accent-accent w-4 h-4"
-          />
-          <div>
-            <span className="text-text-primary font-medium">Dry Run</span>
-            <span className="block text-xs text-text-muted mt-0.5">
-              Simulate the campaign without sending any emails
-            </span>
-          </div>
-        </label>
 
         {/* Error */}
         {error && <p className="text-sm text-red bg-red/10 rounded-lg p-3">{error}</p>}
