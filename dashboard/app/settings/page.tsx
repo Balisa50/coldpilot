@@ -8,11 +8,11 @@ import WakeUp from "../components/WakeUp";
 function StatusBadge({ ok }: { ok: boolean }) {
   return ok ? (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green bg-green/10 px-2.5 py-1 rounded-full">
-      <span className="w-1.5 h-1.5 rounded-full bg-green" /> Ready
+      <span className="w-1.5 h-1.5 rounded-full bg-green" /> Connected
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red bg-red/10 px-2.5 py-1 rounded-full">
-      <span className="w-1.5 h-1.5 rounded-full bg-red" /> Not configured
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full">
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Not configured
     </span>
   );
 }
@@ -21,16 +21,45 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
+
+  // SMTP form state
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Test connection
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   useEffect(() => {
     api
       .getSettings()
-      .then((s) => { setSettings(s); setReady(true); })
+      .then((s) => {
+        setSettings(s);
+        setSmtpUser(s.smtp_user || "");
+        setSenderName((s as any).sender_name || "");
+        setReady(true);
+      })
       .catch(() => setReady(false))
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await api.updateSettings({ smtp_user: smtpUser, smtp_app_password: smtpPass, sender_name: senderName });
+      setSaveMsg({ ok: true, text: "Saved. Test the connection below." });
+      const s = await api.getSettings();
+      setSettings(s);
+    } catch (err) {
+      setSaveMsg({ ok: false, text: err instanceof Error ? err.message : "Save failed" });
+    }
+    setSaving(false);
+  }
 
   async function handleTest() {
     setTesting(true);
@@ -51,109 +80,120 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="w-8 h-8 border-3 border-border border-t-accent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-border border-t-accent rounded-full animate-spin" />
       </div>
     );
   }
 
-  const allReady = settings?.smtp_configured && settings?.groq_configured && settings?.tavily_configured;
-
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">Settings</h1>
-      <p className="text-sm text-text-muted mb-6">Service status for this ColdPilot instance.</p>
+    <div className="max-w-2xl mx-auto space-y-6">
 
-      {/* Overall status */}
-      <div className={`rounded-xl border p-4 mb-6 ${allReady ? "bg-green/5 border-green/20" : "bg-amber-400/5 border-amber-400/20"}`}>
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${allReady ? "bg-green" : "bg-amber-400"}`} />
-          <p className={`text-sm font-medium ${allReady ? "text-green" : "text-amber-400"}`}>
-            {allReady ? "All systems ready — campaigns can send." : "Some services not configured — check below."}
-          </p>
+      {/* Email setup */}
+      <div className="bg-surface border border-border rounded-xl p-6">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-semibold">Your sending email</p>
+          <StatusBadge ok={!!settings?.smtp_configured} />
         </div>
-      </div>
+        <p className="text-xs text-text-muted mb-5">
+          ColdPilot sends campaigns from your Gmail. Use a{" "}
+          <a
+            href="https://support.google.com/accounts/answer/185833"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent underline"
+          >
+            Gmail App Password
+          </a>
+          {" "}(not your regular password).
+        </p>
 
-      {/* Service status cards */}
-      <div className="space-y-3">
-        {/* Email */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <p className="text-sm font-semibold">Email (SMTP)</p>
-              <p className="text-xs text-text-muted mt-0.5">
-                {settings?.smtp_user ? `Sending from ${settings.smtp_user}` : "Gmail credentials — set SMTP_USER and SMTP_APP_PASSWORD on Render"}
-              </p>
-            </div>
-            <StatusBadge ok={!!settings?.smtp_configured} />
-          </div>
+        <form onSubmit={handleSave} className="space-y-4">
+          <label className="block">
+            <span className="text-sm text-text-secondary">Gmail address</span>
+            <input
+              type="email"
+              value={smtpUser}
+              onChange={(e) => setSmtpUser(e.target.value)}
+              placeholder="you@gmail.com"
+              required
+              className="input mt-1"
+            />
+          </label>
 
-          {settings?.smtp_configured && (
-            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border">
+          <label className="block">
+            <span className="text-sm text-text-secondary">App Password</span>
+            <input
+              type="password"
+              value={smtpPass}
+              onChange={(e) => setSmtpPass(e.target.value)}
+              placeholder={settings?.smtp_configured ? "••••••••••••••••" : "xxxx xxxx xxxx xxxx"}
+              required={!settings?.smtp_configured}
+              className="input mt-1"
+            />
+            <span className="text-xs text-text-muted mt-1 block">
+              Leave blank to keep existing password.
+            </span>
+          </label>
+
+          <label className="block">
+            <span className="text-sm text-text-secondary">Your name (appears in From: field)</span>
+            <input
+              type="text"
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+              placeholder="Jane Smith"
+              className="input mt-1"
+            />
+          </label>
+
+          <div className="flex items-center gap-4 pt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm px-5 py-2.5 rounded-lg transition-colors"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            {settings?.smtp_configured && (
               <button
+                type="button"
                 onClick={handleTest}
                 disabled={testing}
-                className="text-xs bg-surface-elevated hover:bg-border border border-border px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                className="text-sm text-text-secondary hover:text-accent transition-colors disabled:opacity-50"
               >
                 {testing ? "Testing..." : "Test connection"}
               </button>
-              {testResult && (
-                <p className={`text-xs ${testResult.ok ? "text-green" : "text-red"}`}>
-                  {testResult.ok ? "Connection successful" : testResult.message}
-                </p>
-              )}
-            </div>
-          )}
-
-          {!settings?.smtp_configured && (
-            <div className="mt-3 pt-3 border-t border-border">
-              <p className="text-xs text-text-muted">
-                Go to your{" "}
-                <a href="https://render.com/dashboard" target="_blank" rel="noreferrer" className="text-accent underline">
-                  Render dashboard
-                </a>
-                {" "}→ coldpilot-api → Environment → add:
+            )}
+            {saveMsg && (
+              <p className={`text-xs ${saveMsg.ok ? "text-green" : "text-red"}`}>{saveMsg.text}</p>
+            )}
+            {testResult && (
+              <p className={`text-xs ${testResult.ok ? "text-green" : "text-red"}`}>
+                {testResult.ok ? "Connected" : testResult.message}
               </p>
-              <div className="mt-2 font-mono text-xs bg-background rounded-lg p-3 space-y-1">
-                <p><span className="text-text-muted">SMTP_USER</span> = your-gmail@gmail.com</p>
-                <p><span className="text-text-muted">SMTP_APP_PASSWORD</span> = xxxx-xxxx-xxxx-xxxx</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Groq */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">Groq (LLM)</p>
-              <p className="text-xs text-text-muted mt-0.5">Writes and personalises outreach emails</p>
-            </div>
-            <StatusBadge ok={!!settings?.groq_configured} />
+            )}
           </div>
-        </div>
-
-        {/* Tavily */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">Tavily (Research)</p>
-              <p className="text-xs text-text-muted mt-0.5">Researches target companies before writing</p>
-            </div>
-            <StatusBadge ok={!!settings?.tavily_configured} />
-          </div>
-        </div>
-
-        {/* Hunter */}
-        <div className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">Hunter.io (Contact Finder)</p>
-              <p className="text-xs text-text-muted mt-0.5">Finds contact emails for Hunter mode</p>
-            </div>
-            <StatusBadge ok={!!settings?.hunter_configured} />
-          </div>
-        </div>
+        </form>
       </div>
+
+      {/* API service status — read-only, operator configures these */}
+      <div className="bg-surface border border-border rounded-xl p-5 space-y-3">
+        <p className="text-xs text-text-muted uppercase tracking-wider font-medium">Service status</p>
+        {[
+          { label: "AI (Groq)", ok: !!settings?.groq_configured, note: "Writes and personalises emails" },
+          { label: "Research (Tavily)", ok: !!settings?.tavily_configured, note: "Researches companies before writing" },
+          { label: "Contact finder (Hunter.io)", ok: !!settings?.hunter_configured, note: "Finds email addresses for Hunter mode" },
+        ].map((s) => (
+          <div key={s.label} className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">{s.label}</p>
+              <p className="text-xs text-text-muted">{s.note}</p>
+            </div>
+            <StatusBadge ok={s.ok} />
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }

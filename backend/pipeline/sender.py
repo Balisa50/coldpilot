@@ -96,6 +96,7 @@ async def send_email(
     email_record: dict,
     prospect: dict,
     in_reply_to: str | None = None,
+    user_smtp: dict | None = None,
 ) -> dict:
     """
     Send one email. Returns {success, error?, bounce?}.
@@ -112,7 +113,11 @@ async def send_email(
         return {"success": False, "error": "No email address", "bounce": False}
 
     backend     = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
-    sender_name = os.getenv("SENDER_NAME", "").strip() or None
+    sender_name = (
+        (user_smtp.get("sender_name") if user_smtp else None)
+        or os.getenv("SENDER_NAME", "").strip()
+        or None
+    )
     unsub_url   = f"{backend}/unsubscribe/{prospect['id']}"
 
     # Inject unsubscribe footer + click tracking right before sending.
@@ -133,6 +138,8 @@ async def send_email(
         list_unsubscribe=unsub_url,
         in_reply_to=in_reply_to,
         references=in_reply_to,
+        smtp_user=user_smtp.get("smtp_user") if user_smtp else None,
+        smtp_password=user_smtp.get("smtp_app_password") if user_smtp else None,
     )
 
     if result["success"]:

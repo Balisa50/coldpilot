@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 from backend import db, event_bus
 from backend.pipeline import contact_finder, researcher, email_writer, sender, followup
@@ -55,6 +56,7 @@ async def process_prospect(
     prospect: dict,
     campaign: dict,
     semaphore: asyncio.Semaphore,
+    user_smtp: dict | None = None,
 ) -> None:
     """Run the full pipeline for one prospect."""
     cid = campaign["id"]
@@ -228,7 +230,7 @@ async def process_prospect(
                     await _publish(cid, "daily_limit_reached", {"prospect_id": pid})
                     return  # Scheduler will pick up approved emails later
 
-                send_result = await sender.send_email(email_record, prospect)
+                send_result = await sender.send_email(email_record, prospect, user_smtp=user_smtp)
 
                 if send_result["success"]:
                     await _publish(cid, "email_sent", {
@@ -267,13 +269,23 @@ async def process_prospect(
             })
 
 
-async def run_campaign(campaign_id: str) -> None:
+async def run_campaign(campaign_id: str, user_id: str | None = None) -> None:
     """
     Run the full pipeline for a campaign. Processes up to MAX_CONCURRENT
     prospects at a time.
     """
     campaign = await db.get_campaign(campaign_id)
     if not campaign:
+        return
+
+    user_smtp: dict | None = None
+    if user_id:
+        user_smtp = await db.get_user_smtp(user_id)
+    if not user_smtp and not os.getenv("SMTP_USER"):
+        # No SMTP configured at all — abort early with helpful message
+        await _publish(campaign_id, "pipeline_error", {
+            "error": "No email credentials. Go to Settings and connect your Gmail account."
+        })
         return
 
     await db.update_campaign(campaign_id, {"status": "active"})
@@ -293,7 +305,7 @@ async def run_campaign(campaign_id: str) -> None:
 
     # Process all pending prospects concurrently (bounded by semaphore)
     tasks = [
-        process_prospect(prospect, campaign, semaphore)
+        process_prospect(prospect, campaign, semaphore, user_smtp=user_smtp)
         for prospect in pending
     ]
     await asyncio.gather(*tasks, return_exceptions=True)

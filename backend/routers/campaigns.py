@@ -5,7 +5,8 @@ import asyncio
 import io
 import json
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
+from backend.auth import get_current_user
 from fastapi.responses import StreamingResponse
 
 from backend import db, event_bus
@@ -93,8 +94,9 @@ def _sanitize_cv_text(raw: str | None) -> str | None:
 
 
 @router.post("")
-async def create_campaign(body: CampaignCreate, background: BackgroundTasks):
+async def create_campaign(body: CampaignCreate, background: BackgroundTasks, user_id: str = Depends(get_current_user)):
     data = body.model_dump()
+    data["user_id"] = user_id
 
     # Defensive: reject obvious PDF/binary garbage in cv_text (legacy clients)
     data["cv_text"] = _sanitize_cv_text(data.get("cv_text"))
@@ -131,8 +133,8 @@ async def create_campaign(body: CampaignCreate, background: BackgroundTasks):
 
 
 @router.get("")
-async def list_campaigns():
-    campaigns = await db.list_campaigns()
+async def list_campaigns(user_id: str = Depends(get_current_user)):
+    campaigns = await db.list_campaigns(user_id=user_id)
     # Attach counts
     for c in campaigns:
         prospects = await db.list_prospects(c["id"])
@@ -169,7 +171,7 @@ async def delete_campaign(campaign_id: str):
 
 
 @router.post("/{campaign_id}/start")
-async def start_campaign(campaign_id: str, background: BackgroundTasks):
+async def start_campaign(campaign_id: str, background: BackgroundTasks, user_id: str = Depends(get_current_user)):
     campaign = await db.get_campaign(campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
@@ -177,7 +179,7 @@ async def start_campaign(campaign_id: str, background: BackgroundTasks):
         raise HTTPException(400, "Campaign already running")
 
     await db.update_campaign(campaign_id, {"status": "active"})
-    background.add_task(run_campaign, campaign_id)
+    background.add_task(run_campaign, campaign_id, user_id)
     return {"started": True, "campaign_id": campaign_id}
 
 

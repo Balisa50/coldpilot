@@ -161,6 +161,7 @@ export interface Settings {
   smtp_configured: boolean;
   imap_configured: boolean;
   smtp_user: string;
+  sender_name?: string;
   hunter_configured: boolean;
   tavily_configured: boolean;
   groq_configured: boolean;

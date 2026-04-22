@@ -4,13 +4,26 @@ const IS_BROWSER = typeof window !== "undefined";
 const USE_PROXY = IS_BROWSER && !process.env.NEXT_PUBLIC_API_URL;
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+import { getSupabase } from "./supabase";
+
 async function request<T>(path: string, options?: RequestInit, retries = 2): Promise<T> {
   const url = USE_PROXY ? path.replace(/^\/api\//, "/api/proxy/") : `${API_BASE}${path}`;
+
+  // Get current session token — Supabase refreshes it automatically
+  let authHeader: string | undefined;
+  try {
+    const { data: { session } } = await getSupabase().auth.getSession();
+    if (session?.access_token) authHeader = `Bearer ${session.access_token}`;
+  } catch {}
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, {
-        headers: { "Content-Type": "application/json", ...options?.headers },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+          ...options?.headers,
+        },
         ...options,
       });
       if (!res.ok) {
@@ -115,7 +128,7 @@ export const api = {
   validateImap: () => request<{ ok: boolean; message: string }>("/api/settings/validate-imap", { method: "POST" }),
   validateKeys: () => request<Record<string, { ok: boolean }>>("/api/settings/validate-keys", { method: "POST" }),
   checkDns: () => request<DnsCheckResult>("/api/settings/check-dns", { method: "POST" }),
-  updateSettings: (data: { smtp_user?: string; smtp_pass?: string; sender_name?: string; sender_email?: string }) =>
+  updateSettings: (data: { smtp_user?: string; smtp_app_password?: string; sender_name?: string }) =>
     request<{ ok: boolean }>("/api/settings", { method: "PATCH", body: JSON.stringify(data) }),
 
   // CV parsing (PDF upload → extracted text)
@@ -123,7 +136,16 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     const url = USE_PROXY ? "/api/proxy/campaigns/parse-cv" : `${API_BASE}/api/campaigns/parse-cv`;
-    const res = await fetch(url, { method: "POST", body: form });
+    let authHeader: string | undefined;
+    try {
+      const { data: { session } } = await getSupabase().auth.getSession();
+      if (session?.access_token) authHeader = `Bearer ${session.access_token}`;
+    } catch {}
+    const res = await fetch(url, {
+      method: "POST",
+      body: form,
+      headers: authHeader ? { Authorization: authHeader } : {},
+    });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new Error(`${res.status}: ${body}`);

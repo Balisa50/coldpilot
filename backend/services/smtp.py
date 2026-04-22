@@ -30,6 +30,10 @@ async def send_email(
     list_unsubscribe: str | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
+    smtp_user: str | None = None,
+    smtp_password: str | None = None,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
 ) -> dict:
     """
     Send an email via SMTP.
@@ -39,16 +43,21 @@ async def send_email(
     e.g. "<abc@domain>") to thread follow-ups into the same conversation.
     """
     cfg = _config()
-    if not cfg["username"] or not cfg["password"]:
+    username = smtp_user or cfg["username"]
+    password = smtp_password or cfg["password"]
+    hostname = smtp_host or cfg["hostname"]
+    port = smtp_port or cfg["port"]
+
+    if not username or not password:
         raise RuntimeError("SMTP credentials not configured")
 
-    from_addr = cfg["username"]
+    from_addr = username
     if from_name:
         from_header = f"{from_name} <{from_addr}>"
     else:
         from_header = from_addr
 
-    domain = cfg["username"].split("@")[-1] if "@" in cfg["username"] else "localhost"
+    domain = username.split("@")[-1] if "@" in username else "localhost"
     msg_id = make_msgid(domain=domain)
 
     msg = MIMEMultipart("alternative")
@@ -74,10 +83,10 @@ async def send_email(
     try:
         await aiosmtplib.send(
             msg,
-            hostname=cfg["hostname"],
-            port=cfg["port"],
-            username=cfg["username"],
-            password=cfg["password"],
+            hostname=hostname,
+            port=port,
+            username=username,
+            password=password,
             start_tls=True,
         )
         return {"success": True, "message_id": msg_id}
@@ -93,18 +102,28 @@ async def send_email(
         return {"success": False, "error": str(e), "bounce": False}
 
 
-async def test_connection() -> dict:
+async def test_connection(
+    smtp_user: str | None = None,
+    smtp_password: str | None = None,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
+) -> dict:
     """Test SMTP connection without sending. Returns {ok, message}."""
     cfg = _config()
+    username = smtp_user or cfg["username"]
+    password = smtp_password or cfg["password"]
+    hostname = smtp_host or cfg["hostname"]
+    port = smtp_port or cfg["port"]
+
     try:
         smtp = aiosmtplib.SMTP(
-            hostname=cfg["hostname"],
-            port=cfg["port"],
+            hostname=hostname,
+            port=port,
             start_tls=True,
         )
         await smtp.connect()
-        await smtp.login(cfg["username"], cfg["password"])
+        await smtp.login(username, password)
         await smtp.quit()
-        return {"ok": True, "message": f"Connected to {cfg['hostname']} as {cfg['username']}"}
+        return {"ok": True, "message": f"Connected to {hostname} as {username}"}
     except Exception as e:
         return {"ok": False, "message": str(e)}

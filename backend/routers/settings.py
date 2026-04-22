@@ -4,11 +4,20 @@ from __future__ import annotations
 import asyncio
 import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
+from backend.auth import get_current_user
+from backend import db as _db
 from backend.services import smtp, hunter, imap_poller
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+class SmtpUpdate(BaseModel):
+    smtp_user: str
+    smtp_app_password: str
+    sender_name: str | None = None
 
 
 async def _check_dns_deliverability(domain: str) -> dict:
@@ -58,22 +67,48 @@ async def _check_dns_deliverability(domain: str) -> dict:
 
 
 @router.get("")
-async def get_settings():
+async def get_settings(user_id: str = Depends(get_current_user)):
     """Return which services are configured (not the keys themselves)."""
-    smtp_ok = bool(os.getenv("SMTP_USER") and (os.getenv("SMTP_APP_PASSWORD") or os.getenv("SMTP_PASS")))
+    user_smtp = await _db.get_user_smtp(user_id)
+    smtp_ok = bool(
+        user_smtp
+        and user_smtp.get("smtp_user")
+        and user_smtp.get("smtp_app_password")
+    )
+    # Fall back to env vars if no per-user config (for the operator's own account)
+    if not smtp_ok:
+        smtp_ok = bool(os.getenv("SMTP_USER") and (os.getenv("SMTP_APP_PASSWORD") or os.getenv("SMTP_PASS")))
     return {
         "smtp_configured": smtp_ok,
         # IMAP uses same credentials as SMTP — if SMTP is configured, IMAP is too
         "imap_configured": smtp_ok,
-        "smtp_user": os.getenv("SMTP_USER", ""),
+        "smtp_user": (user_smtp.get("smtp_user") if user_smtp else None) or os.getenv("SMTP_USER", ""),
+        "sender_name": (user_smtp.get("sender_name") if user_smtp else None) or "",
         "hunter_configured": bool(os.getenv("HUNTER_API_KEY")),
         "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
         "groq_configured": bool(os.getenv("GROQ_API_KEY")),
     }
 
 
+@router.patch("")
+async def update_settings(body: SmtpUpdate, user_id: str = Depends(get_current_user)):
+    await _db.save_user_smtp(
+        user_id,
+        body.smtp_user.strip(),
+        body.smtp_app_password.strip(),
+        body.sender_name,
+    )
+    return {"ok": True}
+
+
 @router.post("/validate-smtp")
-async def validate_smtp():
+async def validate_smtp(user_id: str = Depends(get_current_user)):
+    user_smtp = await _db.get_user_smtp(user_id)
+    if user_smtp and user_smtp.get("smtp_user") and user_smtp.get("smtp_app_password"):
+        return await smtp.test_connection(
+            smtp_user=user_smtp["smtp_user"],
+            smtp_password=user_smtp["smtp_app_password"],
+        )
     return await smtp.test_connection()
 
 

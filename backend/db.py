@@ -143,7 +143,18 @@ CREATE INDEX IF NOT EXISTS idx_emails_status ON emails(status);
 CREATE INDEX IF NOT EXISTS idx_followup_scheduled ON followup_schedule(scheduled_for, status);
 CREATE INDEX IF NOT EXISTS idx_followup_campaign ON followup_schedule(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_action_log_campaign ON action_log(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_action_log_created ON action_log(created_at)\
+CREATE INDEX IF NOT EXISTS idx_action_log_created ON action_log(created_at);
+
+CREATE TABLE IF NOT EXISTS user_smtp_settings (
+    user_id TEXT PRIMARY KEY,
+    smtp_user TEXT,
+    smtp_app_password TEXT,
+    sender_name TEXT,
+    smtp_host TEXT NOT NULL DEFAULT 'smtp.gmail.com',
+    smtp_port INTEGER NOT NULL DEFAULT 587,
+    created_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS'),
+    updated_at TEXT NOT NULL DEFAULT to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')
+)\
 """
 
 
@@ -331,6 +342,7 @@ async def _init_pg() -> None:
             "ALTER TABLE emails ADD COLUMN IF NOT EXISTS opened_at TEXT",
             "ALTER TABLE emails ADD COLUMN IF NOT EXISTS clicked_at TEXT",
             "ALTER TABLE prospects ADD COLUMN IF NOT EXISTS unsubscribed_at TEXT",
+            "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS user_id TEXT",
         ):
             try:
                 await conn.execute(sql)
@@ -346,6 +358,7 @@ async def _migrate(db: _Conn) -> None:
         return  # Handled by _init_pg
     email_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(emails)")}
     prospect_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(prospects)")}
+    campaign_cols = {row["name"] for row in await db.execute_fetchall("PRAGMA table_info(campaigns)")}
 
     migrations: list[str] = []
     if "message_id" not in email_cols:
@@ -356,6 +369,8 @@ async def _migrate(db: _Conn) -> None:
         migrations.append("ALTER TABLE emails ADD COLUMN clicked_at TEXT")
     if "unsubscribed_at" not in prospect_cols:
         migrations.append("ALTER TABLE prospects ADD COLUMN unsubscribed_at TEXT")
+    if "user_id" not in campaign_cols:
+        migrations.append("ALTER TABLE campaigns ADD COLUMN user_id TEXT")
 
     for sql in migrations:
         await db.execute(sql)
@@ -376,13 +391,14 @@ async def create_campaign(data: dict) -> dict:
             """INSERT INTO campaigns
                (id, mode, autonomy, name, dry_run,
                 company_name, company_url, company_description, ideal_customer_profile,
-                cv_text, desired_role)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                cv_text, desired_role, user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (cid, data["mode"], data.get("autonomy", "copilot"), data["name"],
              1 if data.get("dry_run") else 0,
              data.get("company_name"), data.get("company_url"),
              data.get("company_description"), icp,
-             data.get("cv_text"), data.get("desired_role")),
+             data.get("cv_text"), data.get("desired_role"),
+             data.get("user_id")),
         )
         await db.commit()
         return await get_campaign(cid)
@@ -399,12 +415,18 @@ async def get_campaign(cid: str) -> dict | None:
         await db.close()
 
 
-async def list_campaigns() -> list[dict]:
+async def list_campaigns(user_id: str | None = None) -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM campaigns ORDER BY created_at DESC"
-        )
+        if user_id:
+            rows = await db.execute_fetchall(
+                "SELECT * FROM campaigns WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            )
+        else:
+            rows = await db.execute_fetchall(
+                "SELECT * FROM campaigns ORDER BY created_at DESC"
+            )
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -879,6 +901,47 @@ async def set_daily_limit(limit: int) -> None:
                VALUES (?, 0, ?)
                ON CONFLICT(date) DO UPDATE SET limit_for_day = ?""",
             (today, limit, limit),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+# ─── Stats ───────────────────────────────────────────────────────────────────
+
+# ─── User SMTP Settings ──────────────────────────────────────────────────────
+
+async def get_user_smtp(user_id: str) -> dict | None:
+    """Return the user's saved SMTP settings, or None if not configured."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM user_smtp_settings WHERE user_id = ?", (user_id,)
+        )
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def save_user_smtp(
+    user_id: str,
+    smtp_user: str,
+    smtp_app_password: str,
+    sender_name: str | None = None,
+) -> None:
+    """Upsert the user's SMTP credentials."""
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO user_smtp_settings (user_id, smtp_user, smtp_app_password, sender_name)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 smtp_user = ?,
+                 smtp_app_password = ?,
+                 sender_name = ?,
+                 updated_at = ?""",
+            (user_id, smtp_user, smtp_app_password, sender_name,
+             smtp_user, smtp_app_password, sender_name, now_iso()),
         )
         await db.commit()
     finally:

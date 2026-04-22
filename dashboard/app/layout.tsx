@@ -11,7 +11,6 @@ const NAV = [
   { href: "/", label: "New Campaign" },
   { href: "/campaigns", label: "Campaigns" },
   { href: "/inbox", label: "Inbox" },
-  { href: "/activity", label: "Activity" },
   { href: "/settings", label: "Settings" },
 ];
 
