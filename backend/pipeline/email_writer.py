@@ -207,7 +207,9 @@ async def write_initial_email(
                 "__error__": "CV text is empty or contained only binary data. "
                              "Please re-upload your CV as a PDF so it can be parsed correctly."
             }
-        recipient_name = prospect.get('contact_name') or 'Hiring Manager'
+        # Use first name only for the greeting — avoids "Hi AbdouAbdou Ceesay,"
+        _full_name = (prospect.get('contact_name') or '').strip()
+        recipient_name = _full_name.split()[0] if _full_name else 'Hiring Manager'
         recipient_role = prospect.get('contact_role') or ''
         user_prompt = f"""=== JOB SEEKER (the person WRITING this email) ===
 CV:
@@ -240,7 +242,9 @@ Recent news: {json.dumps(research_notes.get('news', []))}
 Pain points: {json.dumps(research_notes.get('pain_points', []))}
 Opportunities: {json.dumps(research_notes.get('opportunities', []))}
 
-Write the cold outreach email. Reference at least one SPECIFIC research fact."""
+Write the cold outreach email. Reference at least one SPECIFIC research fact.
+
+STRICT RULE: Only describe what the sender's company actually does (as stated above). Do NOT invent services, case studies, past clients, or capabilities that are not mentioned in the company description. If the description says they build AI tools, say that — do not claim they do recruiting, consulting, or anything else."""
 
     last_response: str = ""
     result: dict | None = None
