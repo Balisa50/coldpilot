@@ -475,18 +475,24 @@ export default function CampaignDetailPage() {
               return (
                 <div
                   key={a.id}
-                  className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-surface-elevated/40 transition-colors"
+                  className="flex items-start gap-3 py-2.5 px-3 rounded-lg hover:bg-surface-elevated/40 transition-colors"
                 >
                   <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${style.dot}`} />
-                  <span className="text-xs text-text-muted font-mono shrink-0 mt-0.5 w-24">
-                    {timeLabel}
-                  </span>
-                  <span className={`text-sm flex-1 min-w-0 ${style.text}`}>
-                    {a.action.replace(/_/g, " ")}
-                  </span>
-                  {a.detail && (
-                    <span className="text-xs text-text-muted truncate max-w-xs">{formatDetail(a.detail)}</span>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-text-muted font-mono shrink-0">
+                        {timeLabel}
+                      </span>
+                      <span className={`text-sm font-medium ${style.text}`}>
+                        {a.action.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    {a.detail && (
+                      <p className="text-xs text-text-muted mt-0.5 break-words leading-relaxed">
+                        {formatDetail(a.detail)}
+                      </p>
+                    )}
+                  </div>
                 </div>
               );
             })
