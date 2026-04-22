@@ -22,23 +22,6 @@ const STATUS_BADGE: Record<string, string> = {
   failed:           "bg-red/15 text-red",
 };
 
-const DISMISSED_KEY = "coldpilot:inbox:dismissed";
-
-function loadDismissed(): Set<string> {
-  try {
-    const raw = localStorage.getItem(DISMISSED_KEY);
-    return new Set(raw ? JSON.parse(raw) : []);
-  } catch { return new Set(); }
-}
-
-function saveDismissed(ids: Set<string>) {
-  try {
-    // Cap at 500 to avoid bloating localStorage
-    const arr = [...ids].slice(-500);
-    localStorage.setItem(DISMISSED_KEY, JSON.stringify(arr));
-  } catch {}
-}
-
 export default function InboxPage() {
   const [campaigns, setCampaigns]   = useState<Campaign[]>([]);
   const [emails, setEmails]         = useState<Email[]>([]);
@@ -48,30 +31,6 @@ export default function InboxPage() {
   const [tab, setTab]               = useState<Tab>("pending");
   const [selected, setSelected]     = useState<Email | null>(null);
   const [acting, setActing]         = useState<string | null>(null);
-  const [dismissed, setDismissed]   = useState<Set<string>>(new Set());
-
-  // Load dismissed list from localStorage on mount
-  useEffect(() => { setDismissed(loadDismissed()); }, []);
-
-  const dismiss = useCallback((id: string) => {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      saveDismissed(next);
-      return next;
-    });
-    setSelected((s) => (s?.id === id ? null : s));
-  }, []);
-
-  const clearTab = useCallback((visibleIds: string[]) => {
-    setDismissed((prev) => {
-      const next = new Set(prev);
-      visibleIds.forEach((id) => next.add(id));
-      saveDismissed(next);
-      return next;
-    });
-    setSelected(null);
-  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -110,19 +69,27 @@ export default function InboxPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Pending emails are never dismissable — they need a decision (Approve/Reject)
+  // Pending emails must be actioned — they can't be dismissed
   const canDismiss = (e: Email) => e.status !== "pending_approval";
 
-  const filtered = emails.filter((e) => {
-    if (dismissed.has(e.id) && canDismiss(e)) return false;
-    if (tab === "pending")  return e.status === "pending_approval";
-    if (tab === "approved") return e.status === "approved";
-    if (tab === "sent")     return e.status === "sent";
-    return true;
-  });
+  const handleDismiss = async (id: string) => {
+    // Optimistic update
+    setEmails((prev) => prev.map((e) => e.id === id ? { ...e, dismissed: 1 } : e));
+    setSelected((s) => (s?.id === id ? null : s));
+    try {
+      await api.dismissEmail(id);
+    } catch {
+      // Rollback on failure
+      setEmails((prev) => prev.map((e) => e.id === id ? { ...e, dismissed: 0 } : e));
+    }
+  };
 
-  // IDs that can be cleared in the current tab view
-  const clearableIds = filtered.filter(canDismiss).map((e) => e.id);
+  const handleClearTab = async (ids: string[]) => {
+    // Optimistic — dismiss all at once in UI, then fire requests
+    setEmails((prev) => prev.map((e) => ids.includes(e.id) ? { ...e, dismissed: 1 } : e));
+    setSelected(null);
+    await Promise.allSettled(ids.map((id) => api.dismissEmail(id)));
+  };
 
   const handleApprove = async (id: string) => {
     setActing(id);
@@ -155,6 +122,21 @@ export default function InboxPage() {
     campaigns.find((c) => c.id === cid)?.name || "Unknown";
 
   const getProspect = (e: Email) => prospects[e.prospect_id];
+
+  const filtered = emails.filter((e) => {
+    // Always show pending — they need a decision
+    if (e.status === "pending_approval") {
+      return tab === "pending" || tab === "all";
+    }
+    // Hide dismissed from all non-"all" tabs
+    if (e.dismissed && tab !== "all") return false;
+    if (tab === "approved") return e.status === "approved";
+    if (tab === "sent")     return e.status === "sent";
+    if (tab === "all")      return true;
+    return false;
+  });
+
+  const clearableIds = filtered.filter(canDismiss).filter((e) => !e.dismissed).map((e) => e.id);
   const pendingCount = emails.filter((e) => e.status === "pending_approval").length;
 
   if (loading) {
@@ -220,10 +202,9 @@ export default function InboxPage() {
           ))}
         </div>
 
-        {/* Clear all — only shown when there are dismissable items in this tab */}
         {clearableIds.length > 0 && (
           <button
-            onClick={() => clearTab(clearableIds)}
+            onClick={() => handleClearTab(clearableIds)}
             className="text-xs text-text-muted hover:text-red transition-colors pb-2.5 pr-1"
           >
             Clear all
@@ -233,13 +214,10 @@ export default function InboxPage() {
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-text-muted text-sm">
-          {tab === "pending"
-            ? "No emails pending review"
-            : tab === "approved"
-            ? "No approved emails"
-            : tab === "sent"
-            ? "No sent emails"
-            : "No emails yet — start a campaign first"}
+          {tab === "pending"  ? "No emails pending review" :
+           tab === "approved" ? "No approved emails" :
+           tab === "sent"     ? "No sent emails" :
+                                "No emails yet — start a campaign first"}
         </div>
       ) : (
         <div className="space-y-3">
@@ -253,20 +231,18 @@ export default function InboxPage() {
                 key={email.id}
                 className="bg-surface border border-border rounded-xl overflow-hidden"
               >
-                {/* Row summary */}
+                {/* Row */}
                 <div className="flex items-center gap-2 pr-3">
                   <button
                     onClick={() => setSelected(isOpen ? null : email)}
                     className="flex-1 text-left px-5 py-4 flex items-center gap-4 hover:bg-surface-elevated/50 transition-colors min-w-0"
                   >
-                    {/* Status badge */}
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
                       STATUS_BADGE[email.status] || "bg-border text-text-muted"
                     }`}>
                       {email.status === "pending_approval" ? "Review" : email.status}
                     </span>
 
-                    {/* Prospect info */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-text-primary truncate">
                         {prospect?.contact_name || prospect?.company_name || "Unknown"}{" "}
@@ -279,7 +255,6 @@ export default function InboxPage() {
                       </p>
                     </div>
 
-                    {/* Campaign name */}
                     <div className="shrink-0 text-right hidden sm:block">
                       <p className="text-xs text-text-muted">{getCampaignName(email.campaign_id)}</p>
                       <p className="text-xs text-text-muted mt-0.5">
@@ -290,10 +265,10 @@ export default function InboxPage() {
                     <span className="text-text-muted text-xs shrink-0">{isOpen ? "▲" : "▼"}</span>
                   </button>
 
-                  {/* Dismiss X — shown on non-pending emails */}
-                  {canDismiss(email) && (
+                  {/* Dismiss X — not shown on pending emails */}
+                  {canDismiss(email) && !email.dismissed && (
                     <button
-                      onClick={() => dismiss(email.id)}
+                      onClick={() => handleDismiss(email.id)}
                       className="shrink-0 text-text-muted hover:text-red transition-colors p-1.5 rounded"
                       title="Remove from inbox"
                     >
@@ -329,28 +304,18 @@ export default function InboxPage() {
                       </div>
                     )}
 
-                    {/* Actions — pending only */}
                     {email.status === "pending_approval" && (
                       <div className="flex gap-2 pt-2">
-                        <button
-                          disabled={busy}
-                          onClick={() => handleApprove(email.id)}
-                          className="bg-green hover:bg-green/80 text-white text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-                        >
+                        <button disabled={busy} onClick={() => handleApprove(email.id)}
+                          className="bg-green hover:bg-green/80 text-white text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
                           {busy ? "..." : "Approve"}
                         </button>
-                        <button
-                          disabled={busy}
-                          onClick={() => handleRewrite(email.id)}
-                          className="bg-accent hover:bg-accent-hover text-white text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-                        >
+                        <button disabled={busy} onClick={() => handleRewrite(email.id)}
+                          className="bg-accent hover:bg-accent-hover text-white text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
                           {busy ? "..." : "Rewrite"}
                         </button>
-                        <button
-                          disabled={busy}
-                          onClick={() => handleReject(email.id)}
-                          className="bg-red/10 hover:bg-red/20 text-red text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-                        >
+                        <button disabled={busy} onClick={() => handleReject(email.id)}
+                          className="bg-red/10 hover:bg-red/20 text-red text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
                           {busy ? "..." : "Reject"}
                         </button>
                       </div>

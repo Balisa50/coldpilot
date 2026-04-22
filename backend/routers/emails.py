@@ -60,6 +60,26 @@ async def reject_email(email_id: str, body: EmailAction | None = None):
     return {"rejected": True, "feedback": feedback}
 
 
+@router.post("/{email_id}/dismiss")
+async def dismiss_email(email_id: str):
+    """Remove an email from the inbox view. Stored in DB — persists across devices."""
+    email = await db.get_email(email_id)
+    if not email:
+        raise HTTPException(404, "Email not found")
+    await db.dismiss_email(email_id, dismissed=True)
+    return {"dismissed": True}
+
+
+@router.post("/{email_id}/undismiss")
+async def undismiss_email(email_id: str):
+    """Restore a dismissed email back to the inbox."""
+    email = await db.get_email(email_id)
+    if not email:
+        raise HTTPException(404, "Email not found")
+    await db.dismiss_email(email_id, dismissed=False)
+    return {"dismissed": False}
+
+
 @router.post("/{email_id}/rewrite")
 async def rewrite_email(email_id: str, body: EmailAction | None = None):
     """Regenerate the email, optionally with feedback guidance."""

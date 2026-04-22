@@ -107,6 +107,7 @@ export interface Email {
   body_text: string;
   personalisation_points: string | null;
   status: EmailStatus;
+  dismissed: number;  // 0 = visible, 1 = dismissed
   message_id: string | null;
   sent_at: string | null;
   replied_at: string | null;

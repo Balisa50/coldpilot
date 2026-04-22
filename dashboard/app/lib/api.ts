@@ -114,6 +114,10 @@ export const api = {
     }),
   rewriteEmail: (id: string) =>
     request<Email>(`/api/emails/${id}/rewrite`, { method: "POST" }),
+  dismissEmail: (id: string) =>
+    request<{ dismissed: boolean }>(`/api/emails/${id}/dismiss`, { method: "POST" }),
+  undismissEmail: (id: string) =>
+    request<{ dismissed: boolean }>(`/api/emails/${id}/undismiss`, { method: "POST" }),
 
   // Activity
   listActivity: (limit = 100) =>

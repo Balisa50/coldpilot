@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS emails (
     personalisation_points TEXT,
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK(status IN ('draft','pending_approval','approved','sent','bounced','failed')),
+    dismissed INTEGER NOT NULL DEFAULT 0,
     message_id TEXT,
     sent_at TEXT,
     replied_at TEXT,
@@ -341,6 +342,7 @@ async def _init_pg() -> None:
             "ALTER TABLE emails ADD COLUMN IF NOT EXISTS message_id TEXT",
             "ALTER TABLE emails ADD COLUMN IF NOT EXISTS opened_at TEXT",
             "ALTER TABLE emails ADD COLUMN IF NOT EXISTS clicked_at TEXT",
+            "ALTER TABLE emails ADD COLUMN IF NOT EXISTS dismissed INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE prospects ADD COLUMN IF NOT EXISTS unsubscribed_at TEXT",
             "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS user_id TEXT",
         ):
@@ -367,6 +369,8 @@ async def _migrate(db: _Conn) -> None:
         migrations.append("ALTER TABLE emails ADD COLUMN opened_at TEXT")
     if "clicked_at" not in email_cols:
         migrations.append("ALTER TABLE emails ADD COLUMN clicked_at TEXT")
+    if "dismissed" not in email_cols:
+        migrations.append("ALTER TABLE emails ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0")
     if "unsubscribed_at" not in prospect_cols:
         migrations.append("ALTER TABLE prospects ADD COLUMN unsubscribed_at TEXT")
     if "user_id" not in campaign_cols:
@@ -641,7 +645,7 @@ async def update_email(eid: str, updates: dict) -> dict | None:
         vals: list = []
         for key in ("status", "sent_at", "replied_at", "opened_at", "clicked_at",
                     "bounce_reason", "subject", "body_html", "body_text",
-                    "personalisation_points", "message_id"):
+                    "personalisation_points", "message_id", "dismissed"):
             if key in updates:
                 val = updates[key]
                 if key == "personalisation_points" and isinstance(val, list):
@@ -658,6 +662,11 @@ async def update_email(eid: str, updates: dict) -> dict | None:
         return await get_email(eid)
     finally:
         await db.close()
+
+
+async def dismiss_email(eid: str, dismissed: bool = True) -> None:
+    """Mark an email as dismissed (hidden from inbox) or restore it."""
+    await update_email(eid, {"dismissed": 1 if dismissed else 0})
 
 
 async def list_sent_emails_with_message_ids() -> list[dict]:
