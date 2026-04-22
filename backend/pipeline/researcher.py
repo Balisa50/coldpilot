@@ -133,7 +133,10 @@ async def research(
     snippets = raw.get("summary_snippets", [])
     website_snippets = raw.get("website_snippets", [])
 
-    if not snippets and not website_snippets:
+    linkedin_early = raw.get("linkedin_snippets", [])
+    website_early  = raw.get("website_snippets", [])
+
+    if not snippets and not linkedin_early and not website_early:
         # Zero search results — nothing to work with
         return {
             "summary": f"{company_name} — no public information found online.",
@@ -145,19 +148,33 @@ async def research(
         }
 
     # Step 2: Build LLM prompt
-    # Separate "press/news results" from "company's own website content"
-    # so the LLM understands the provenance of what it's reading.
+    # Label each source separately so the LLM understands provenance:
+    #   - Press/web results: highest signal for recent dated events
+    #   - LinkedIn: company's own profile — reliable for description, size,
+    #     industry, recent posts. Treat posts as potential news items only
+    #     if they describe a specific action (launch, hire, award, etc.)
+    #   - Website: what the company says about itself on their own domain
+    linkedin_snippets = raw.get("linkedin_snippets", [])
+
     sections: list[str] = []
     if snippets:
         sections.append(
             "=== PRESS AND WEB RESULTS ===\n"
             + "\n".join(f"- {s}" for s in snippets)
         )
+    if linkedin_snippets:
+        sections.append(
+            "=== LINKEDIN COMPANY PAGE ===\n"
+            "(Use for company description, industry, size, location. "
+            "Treat LinkedIn posts as news items only if they describe a "
+            "specific action: launched, hired, partnered, awarded, expanded, etc.)\n"
+            + "\n".join(f"- {s}" for s in linkedin_snippets)
+        )
     if website_snippets:
         sections.append(
-            "=== COMPANY'S OWN WEBSITE CONTENT ===\n"
-            "(Use this for the company summary. Only treat it as 'news' if "
-            "it contains a specific dated announcement.)\n"
+            "=== COMPANY'S OWN WEBSITE ===\n"
+            "(Use for company description and products/services. "
+            "Only treat as news if it contains a specific dated announcement.)\n"
             + "\n".join(f"- {s}" for s in website_snippets)
         )
 
